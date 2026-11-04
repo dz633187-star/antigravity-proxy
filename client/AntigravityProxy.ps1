@@ -70,6 +70,7 @@ $form.Text = 'Antigravity Proxy'
 $form.Size = New-Object System.Drawing.Size(470, 340)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedSingle'
+$form.ShowInTaskbar = $true
 $form.MaximizeBox = $false
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
@@ -194,4 +195,5 @@ $btnStart.Add_Click({
     }
 })
 
+$form.Add_Shown({ $form.Activate(); $form.TopMost = $true; $form.TopMost = $false })
 [void]$form.ShowDialog()
