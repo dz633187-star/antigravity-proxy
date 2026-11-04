@@ -1,4 +1,4 @@
-# Antigravity Proxy (приложение)
+﻿# Antigravity Proxy (приложение)
 
 Маленькое окно для Windows, которое:
 
@@ -6,7 +6,6 @@
 - позволяет менять внешний прокси (адрес, порт, логин, пароль);
 - проверяет, куда реально выходит трафик (`ipinfo.io`);
 - запускает Antigravity с правильной переменной окружения;
-- умеет переключаться на резервный выход через VPS (кнопка «Резерв: Нидерланды»).
 
 ## Установка
 
@@ -21,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File install-app.ps1
 ## Где лежат данные
 
 - конфиг Xray: `%LOCALAPPDATA%\XrayNL\config.json`
-- резервный (VPS/Reality): `%LOCALAPPDATA%\XrayNL\config.json.vless-bak`
+- старый конфиг VPS/Reality (приложением не используется): `%LOCALAPPDATA%\XrayNL\config.json.vless-bak`
 - журнал доступа: `%LOCALAPPDATA%\XrayNL\access.log`
 
 В репозиторий эти файлы не попадают — там могут быть ваши пароли.

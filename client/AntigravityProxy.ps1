@@ -6,7 +6,6 @@ $ErrorActionPreference = 'Stop'
 $Dir   = Join-Path $env:LOCALAPPDATA 'XrayNL'
 $Cfg   = Join-Path $Dir 'config.json'
 $Exe   = Join-Path $Dir 'xray.exe'
-$NlBak = Join-Path $Dir 'config.json.vless-bak'
 $App   = 'C:\Users\Дима\AppData\Local\Programs\antigravity\Antigravity.exe'
 
 function Test-Port {
@@ -127,14 +126,9 @@ $btnStart.Location = New-Object System.Drawing.Point(292, 190)
 $btnStart.Size = New-Object System.Drawing.Size(150, 34)
 $form.Controls.Add($btnStart)
 
-$btnNl = New-Object System.Windows.Forms.Button
-$btnNl.Text = 'Резерв: Нидерланды'
-$btnNl.Location = New-Object System.Drawing.Point(18, 236)
-$btnNl.Size = New-Object System.Drawing.Size(180, 30)
-$form.Controls.Add($btnNl)
 
 $lblHint = New-Object System.Windows.Forms.Label
-$lblHint.Location = New-Object System.Drawing.Point(210, 236)
+$lblHint.Location = New-Object System.Drawing.Point(18, 240)
 $lblHint.Size = New-Object System.Drawing.Size(240, 46)
 $lblHint.ForeColor = [System.Drawing.Color]::Gray
 $lblHint.Text = 'Если прокси перестал работать — впишите новый и нажмите «Применить».'
@@ -196,17 +190,6 @@ $btnStart.Add_Click({
         $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
     } catch {
         $lblStatus.Text = 'Не удалось запустить: ' + $_.Exception.Message
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
-    }
-})
-
-$btnNl.Add_Click({
-    if (Test-Path $NlBak) {
-        Copy-Item $NlBak $Cfg -Force
-        if (Restart-Xray) { if (-not (Test-Port)) { Restart-Xray | Out-Null }
-& $script:updateStatus }
-    } else {
-        $lblStatus.Text = 'Резервный конфиг не найден.'
         $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
     }
 })
