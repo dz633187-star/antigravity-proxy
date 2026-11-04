@@ -1,0 +1,15 @@
+# Логи и кэш
+*.log
+__pycache__/
+*.pyc
+
+# Локальные конфиги с секретами
+config.local.json
+client/config.json
+*.secret
+*.bak
+
+# Системное
+Thumbs.db
+desktop.ini
+.DS_Store
