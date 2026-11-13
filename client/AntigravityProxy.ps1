@@ -3,6 +3,11 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $ErrorActionPreference = 'Stop'
+# убираем дубликаты переменных прокси: PowerShell 5.1 падает на Start-Process,
+# если в окружении есть HTTP_PROXY и http_proxy одновременно
+foreach ($n in @('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')) {
+    try { [System.Environment]::SetEnvironmentVariable($n, $null) } catch { }
+}
 $Dir = Join-Path $env:LOCALAPPDATA 'XrayNL'
 $Cfg = Join-Path $Dir 'config.json'
 $Exe = Join-Path $Dir 'xray.exe'
