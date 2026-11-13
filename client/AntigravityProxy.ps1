@@ -9,6 +9,16 @@ $Exe = Join-Path $Dir 'xray.exe'
 $AppRoot = Join-Path $env:LOCALAPPDATA 'AntigravityProxy'
 $BrowserProfile = Join-Path $AppRoot 'BrowserProfile'
 
+$script:Bg = [System.Drawing.Color]::FromArgb(246, 247, 249)
+$script:Card = [System.Drawing.Color]::White
+$script:Ink = [System.Drawing.Color]::FromArgb(24, 32, 44)
+$script:Muted = [System.Drawing.Color]::FromArgb(110, 120, 134)
+$script:Accent = [System.Drawing.Color]::FromArgb(37, 99, 235)
+$script:AccentHover = [System.Drawing.Color]::FromArgb(29, 78, 216)
+$script:Ok = [System.Drawing.Color]::FromArgb(21, 128, 61)
+$script:Warn = [System.Drawing.Color]::FromArgb(180, 83, 9)
+$script:Err = [System.Drawing.Color]::FromArgb(185, 28, 28)
+
 function Test-Port {
     try {
         $c = New-Object System.Net.Sockets.TcpClient
@@ -55,23 +65,23 @@ function Find-Antigravity {
 }
 
 function Find-Browser {
-    $cands = @(
+    foreach ($c in @(
         'C:\Program Files\Google\Chrome\Application\chrome.exe',
         'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
         (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe'),
         'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
-        'C:\Program Files\Microsoft\Edge\Application\msedge.exe'
-    )
-    foreach ($c in $cands) { if (Test-Path $c) { return $c } }
+        'C:\Program Files\Microsoft\Edge\Application\msedge.exe')) {
+        if (Test-Path $c) { return $c }
+    }
     return ''
 }
 
 function Find-OpenCode {
-    $cands = @(
+    foreach ($c in @(
         (Join-Path $env:LOCALAPPDATA 'Programs\@opencode-aidesktop\OpenCode.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\OpenCode\OpenCode.exe')
-    )
-    foreach ($c in $cands) { if (Test-Path $c) { return $c } }
+        (Join-Path $env:LOCALAPPDATA 'Programs\OpenCode\OpenCode.exe'))) {
+        if (Test-Path $c) { return $c }
+    }
     return ''
 }
 
@@ -145,12 +155,16 @@ function Restart-Xray {
     return $false
 }
 
+function Get-BypassList {
+    return ('<local>;localhost;127.0.0.1;::1;' + $env:COMPUTERNAME + ';*.' + $env:USERDNSDOMAIN)
+}
+
 function Set-SystemProxy([bool]$on) {
     $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
     if ($on) {
         Set-ItemProperty -Path $key -Name ProxyEnable -Value 1 -Type DWord -Force
         Set-ItemProperty -Path $key -Name ProxyServer -Value '127.0.0.1:10809' -Type String -Force
-        Set-ItemProperty -Path $key -Name ProxyOverride -Value '<local>' -Type String -Force
+        Set-ItemProperty -Path $key -Name ProxyOverride -Value (Get-BypassList) -Type String -Force
     } else {
         Set-ItemProperty -Path $key -Name ProxyEnable -Value 0 -Type DWord -Force
     }
@@ -166,124 +180,127 @@ $patcher = Find-Patcher
 $browser = Find-Browser
 $opencode = Find-OpenCode
 
-# ---------- форма ----------
-$form = New-Object System.Windows.Forms.Form
-$form.Text = 'Antigravity Proxy'
-$form.Size = New-Object System.Drawing.Size(510, 560)
-$form.StartPosition = 'CenterScreen'
-$form.FormBorderStyle = 'FixedSingle'
-$form.MaximizeBox = $false
-$form.ShowInTaskbar = $true
-$form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-
-function Add-Label($text, $x, $y, $w = 130) {
+# ---------- оформление ----------
+function New-Label([string]$text, [int]$x, [int]$y, [int]$w, [int]$h = 18, [bool]$muted = $false, [bool]$bold = $false) {
     $l = New-Object System.Windows.Forms.Label
-    $l.Text = $text; $l.Location = New-Object System.Drawing.Point($x, $y)
-    $l.Size = New-Object System.Drawing.Size($w, 20)
-    $form.Controls.Add($l)
+    $l.Text = $text
+    $l.Location = New-Object System.Drawing.Point($x, $y)
+    $l.Size = New-Object System.Drawing.Size($w, $h)
+    $l.ForeColor = if ($muted) { $script:Muted } else { $script:Ink }
+    if ($bold) { $l.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 9.5) }
+    $l.BackColor = [System.Drawing.Color]::Transparent
     return $l
 }
-function Add-Box($x, $y, $w, $text) {
+
+function New-Button([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [bool]$primary = $false) {
+    $b = New-Object System.Windows.Forms.Button
+    $b.Text = $text
+    $b.Location = New-Object System.Drawing.Point($x, $y)
+    $b.Size = New-Object System.Drawing.Size($w, $h)
+    $b.FlatStyle = 'Flat'
+    $b.FlatAppearance.BorderSize = if ($primary) { 0 } else { 1 }
+    $b.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(214, 219, 226)
+    $b.BackColor = if ($primary) { $script:Accent } else { [System.Drawing.Color]::White }
+    $b.ForeColor = if ($primary) { [System.Drawing.Color]::White } else { $script:Ink }
+    $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $b.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    return $b
+}
+
+function New-Input([int]$x, [int]$y, [int]$w, [string]$text) {
     $t = New-Object System.Windows.Forms.TextBox
     $t.Location = New-Object System.Drawing.Point($x, $y)
     $t.Size = New-Object System.Drawing.Size($w, 24)
     $t.Text = $text
-    $form.Controls.Add($t)
+    $t.BorderStyle = 'FixedSingle'
+    $t.Font = New-Object System.Drawing.Font('Segoe UI', 9.5)
     return $t
 }
 
-Add-Label 'Сервер (IP или домен):' 18 14 200 | Out-Null
-$tbHost = Add-Box 18 36 260 ''
-Add-Label 'Порт:' 300 14 60 | Out-Null
-$tbPort = Add-Box 300 36 120 ''
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Antigravity Proxy'
+$form.ClientSize = New-Object System.Drawing.Size(504, 572)
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedSingle'
+$form.MaximizeBox = $false
+$form.BackColor = $script:Bg
+$form.ShowInTaskbar = $true
+$form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
-Add-Label 'Логин:' 18 68 100 | Out-Null
-$tbUser = Add-Box 18 90 260 ''
-Add-Label 'Пароль:' 300 68 100 | Out-Null
-$tbPass = Add-Box 300 90 120 ''
+# --- карточка «Прокси» ---
+$card1 = New-Object System.Windows.Forms.Panel
+$card1.Location = New-Object System.Drawing.Point(16, 14)
+$card1.Size = New-Object System.Drawing.Size(472, 176)
+$card1.BackColor = $script:Card
+$form.Controls.Add($card1)
+
+$card1.Controls.Add((New-Label 'Прокси' 16 12 200 20 $false $true))
+$card1.Controls.Add((New-Label 'Сервер' 16 44 120 16 $true))
+$tbHost = New-Input 16 62 260 ''
+$card1.Controls.Add($tbHost)
+$card1.Controls.Add((New-Label 'Порт' 292 44 80 16 $true))
+$tbPort = New-Input 292 62 76 ''
+$card1.Controls.Add($tbPort)
+$btnApply = New-Button 'Применить' 378 60 78 28 $true
+$card1.Controls.Add($btnApply)
+
+$card1.Controls.Add((New-Label 'Логин' 16 94 120 16 $true))
+$tbUser = New-Input 16 112 260 ''
+$card1.Controls.Add($tbUser)
+$card1.Controls.Add((New-Label 'Пароль' 292 94 80 16 $true))
+$tbPass = New-Input 292 112 76 ''
 $tbPass.UseSystemPasswordChar = $true
+$card1.Controls.Add($tbPass)
+$btnTest = New-Button 'Проверить' 378 110 78 28 $false
+$card1.Controls.Add($btnTest)
 
-$btnApply = New-Object System.Windows.Forms.Button
-$btnApply.Text = 'Применить'
-$btnApply.Location = New-Object System.Drawing.Point(430, 34)
-$btnApply.Size = New-Object System.Drawing.Size(60, 26)
-$form.Controls.Add($btnApply)
+$lblStatus = New-Label 'Запускаю прокси…' 16 146 440 22 $true
+$card1.Controls.Add($lblStatus)
 
-$lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Location = New-Object System.Drawing.Point(18, 124)
-$lblStatus.Size = New-Object System.Drawing.Size(470, 38)
-$lblStatus.Text = 'Запускаю прокси...'
-$form.Controls.Add($lblStatus)
+# --- Antigravity ---
+$card2 = New-Object System.Windows.Forms.Panel
+$card2.Location = New-Object System.Drawing.Point(16, 200)
+$card2.Size = New-Object System.Drawing.Size(472, 150)
+$card2.BackColor = $script:Card
+$form.Controls.Add($card2)
 
-$lblApp = New-Object System.Windows.Forms.Label
-$lblApp.Location = New-Object System.Drawing.Point(18, 168)
-$lblApp.Size = New-Object System.Drawing.Size(470, 34)
-$lblApp.ForeColor = [System.Drawing.Color]::DimGray
-if ($ag.App) { $lblApp.Text = "Antigravity: $($ag.App)" } else { $lblApp.Text = 'Antigravity не найден.' }
-$form.Controls.Add($lblApp)
+$card2.Controls.Add((New-Label 'Antigravity' 16 12 200 20 $false $true))
+$lblApp = New-Label 'поиск установки…' 16 38 440 32 $true
+$card2.Controls.Add($lblApp)
 
-$btnStart = New-Object System.Windows.Forms.Button
-$btnStart.Text = 'Запустить Antigravity'
-$btnStart.Location = New-Object System.Drawing.Point(18, 208)
-$btnStart.Size = New-Object System.Drawing.Size(180, 34)
-$form.Controls.Add($btnStart)
+$btnStart = New-Button 'Запустить Antigravity' 16 78 190 32 $true
+$card2.Controls.Add($btnStart)
+$btnPatch = New-Button 'Патч' 218 78 90 32 $false
+$card2.Controls.Add($btnPatch)
+$lblPatch = New-Label 'проверка…' 318 84 140 20 $true
+$card2.Controls.Add($lblPatch)
 
-$btnTest = New-Object System.Windows.Forms.Button
-$btnTest.Text = 'Проверить выход'
-$btnTest.Location = New-Object System.Drawing.Point(208, 208)
-$btnTest.Size = New-Object System.Drawing.Size(140, 34)
-$form.Controls.Add($btnTest)
+# --- остальное ---
+$card3 = New-Object System.Windows.Forms.Panel
+$card3.Location = New-Object System.Drawing.Point(16, 364)
+$card3.Size = New-Object System.Drawing.Size(472, 152)
+$card3.BackColor = $script:Card
+$form.Controls.Add($card3)
 
-$btnPatch = New-Object System.Windows.Forms.Button
-$btnPatch.Text = 'Патч'
-$btnPatch.Location = New-Object System.Drawing.Point(358, 208)
-$btnPatch.Size = New-Object System.Drawing.Size(120, 34)
-$form.Controls.Add($btnPatch)
-
-$lblPatch = New-Object System.Windows.Forms.Label
-$lblPatch.Location = New-Object System.Drawing.Point(18, 250)
-$lblPatch.Size = New-Object System.Drawing.Size(470, 24)
-$lblPatch.ForeColor = [System.Drawing.Color]::DimGray
-$lblPatch.Text = 'Проверка патча...'
-$form.Controls.Add($lblPatch)
-
-$grp = New-Object System.Windows.Forms.GroupBox
-$grp.Text = 'Через этот же прокси'
-$grp.Location = New-Object System.Drawing.Point(18, 284)
-$grp.Size = New-Object System.Drawing.Size(470, 150)
-$form.Controls.Add($grp)
-
-$btnBrowser = New-Object System.Windows.Forms.Button
-$btnBrowser.Text = 'Браузер (Gemini / AI Studio)'
-$btnBrowser.Location = New-Object System.Drawing.Point(14, 26)
-$btnBrowser.Size = New-Object System.Drawing.Size(230, 32)
-$grp.Controls.Add($btnBrowser)
-
-$btnOpenCode = New-Object System.Windows.Forms.Button
-$btnOpenCode.Text = 'OpenCode'
-$btnOpenCode.Location = New-Object System.Drawing.Point(254, 26)
-$btnOpenCode.Size = New-Object System.Drawing.Size(200, 32)
-$grp.Controls.Add($btnOpenCode)
+$card3.Controls.Add((New-Label 'Этот же прокси для' 16 12 260 20 $false $true))
+$btnBrowser = New-Button 'Браузер: Gemini и AI Studio' 16 40 250 34 $false
+$card3.Controls.Add($btnBrowser)
+$btnOpenCode = New-Button 'OpenCode' 278 40 178 34 $false
+$card3.Controls.Add($btnOpenCode)
 
 $chkSystem = New-Object System.Windows.Forms.CheckBox
-$chkSystem.Text = 'Системный прокси (для всех программ)'
-$chkSystem.Location = New-Object System.Drawing.Point(14, 74)
-$chkSystem.Size = New-Object System.Drawing.Size(320, 24)
-$grp.Controls.Add($chkSystem)
+$chkSystem.Text = 'Системный прокси для всех программ'
+$chkSystem.Location = New-Object System.Drawing.Point(16, 86)
+$chkSystem.Size = New-Object System.Drawing.Size(300, 22)
+$chkSystem.ForeColor = $script:Ink
+$chkSystem.BackColor = [System.Drawing.Color]::Transparent
+$card3.Controls.Add($chkSystem)
 
-$lblGrpHint = New-Object System.Windows.Forms.Label
-$lblGrpHint.Location = New-Object System.Drawing.Point(14, 102)
-$lblGrpHint.Size = New-Object System.Drawing.Size(440, 40)
-$lblGrpHint.ForeColor = [System.Drawing.Color]::Gray
-$lblGrpHint.Text = 'Браузер открывается в отдельном профиле, ваша основная сессия Chrome не затрагивается.'
-$grp.Controls.Add($lblGrpHint)
+$lblSysHint = New-Label 'Браузер откроется в отдельном профиле — основная сессия Chrome не затрагивается.' 16 112 430 32 $true
+$card3.Controls.Add($lblSysHint)
 
-$lblHint = New-Object System.Windows.Forms.Label
-$lblHint.Location = New-Object System.Drawing.Point(18, 446)
-$lblHint.Size = New-Object System.Drawing.Size(470, 60)
-$lblHint.ForeColor = [System.Drawing.Color]::Gray
-$lblHint.Text = 'Патчер ищется в «Загрузках». Если патч не применён — нажмите «Патч» и в его меню выберите PATCH → 1 (IDE) или 2 (Antigravity 2.0).'
-$form.Controls.Add($lblHint)
+$lblFoot = New-Label 'Патчер ищется в «Загрузках». В его меню выберите PATCH → 1 (IDE) или 2 (Antigravity 2.0).' 18 526 468 34 $true
+$form.Controls.Add($lblFoot)
 
 $info = Get-ProxyInfo
 if ($info) {
@@ -294,42 +311,51 @@ if ($info) {
 }
 $chkSystem.Checked = Test-SystemProxy
 
+# --- логика ---
 $script:updateStatus = {
     if (Test-Port) {
         try {
             $j = Invoke-RestMethod -Uri 'https://ipinfo.io/json' -Proxy 'http://127.0.0.1:10809' -TimeoutSec 30
-            $lblStatus.Text = "Прокси работает. Выход: $($j.ip) — $($j.country), $($j.city)"
-            $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+            $lblStatus.Text = "Работает — выход $($j.ip), $($j.country), $($j.city)"
+            $lblStatus.ForeColor = $script:Ok
         } catch {
-            $lblStatus.Text = 'Прокси запущен, но проверить выход не удалось: ' + $_.Exception.Message
-            $lblStatus.ForeColor = [System.Drawing.Color]::DarkOrange
+            $lblStatus.Text = 'Прокси запущен, но проверка выхода не удалась'
+            $lblStatus.ForeColor = $script:Warn
         }
     } else {
-        $lblStatus.Text = 'Прокси не запущен. Нажмите «Применить».'
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblStatus.Text = 'Прокси не запущен — нажмите «Применить»'
+        $lblStatus.ForeColor = $script:Err
     }
 }
 
 $script:updatePatch = {
     if ($ag.LanguageServer) {
         $r = Test-Patched $ag.LanguageServer
-        if ($r -eq $true) { $lblPatch.Text = 'Патч: применён'; $lblPatch.ForeColor = [System.Drawing.Color]::DarkGreen }
-        elseif ($r -eq $false) { $lblPatch.Text = 'Патч: не применён'; $lblPatch.ForeColor = [System.Drawing.Color]::Firebrick }
-        else { $lblPatch.Text = 'Патч: не удалось проверить'; $lblPatch.ForeColor = [System.Drawing.Color]::DimGray }
+        if ($r -eq $true) { $lblPatch.Text = 'патч применён'; $lblPatch.ForeColor = $script:Ok }
+        elseif ($r -eq $false) { $lblPatch.Text = 'патч не применён'; $lblPatch.ForeColor = $script:Err }
+        else { $lblPatch.Text = 'не удалось проверить'; $lblPatch.ForeColor = $script:Muted }
     } else {
-        $lblPatch.Text = 'Патч: language_server не найден'
-        $lblPatch.ForeColor = [System.Drawing.Color]::DimGray
+        $lblPatch.Text = 'language_server не найден'
+        $lblPatch.ForeColor = $script:Muted
     }
+}
+
+if ($ag.App) {
+    $lblApp.Text = $ag.App
+    $lblApp.ForeColor = $script:Muted
+} else {
+    $lblApp.Text = 'Не найдено. Установите Antigravity.'
+    $lblApp.ForeColor = $script:Err
 }
 
 $btnApply.Add_Click({
     try {
         Write-ProxyConfig $tbHost.Text.Trim() $tbPort.Text.Trim() $tbUser.Text.Trim() $tbPass.Text
         if (Restart-Xray) { & $script:updateStatus }
-        else { $lblStatus.Text = 'Xray не запустился. Проверьте данные прокси.'; $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick }
+        else { $lblStatus.Text = 'Xray не запустился — проверьте данные'; $lblStatus.ForeColor = $script:Err }
     } catch {
         $lblStatus.Text = 'Ошибка: ' + $_.Exception.Message
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblStatus.ForeColor = $script:Err
     }
 })
 
@@ -342,32 +368,32 @@ $btnStart.Add_Click({
         $env:AG_LS_PROXY = 'http://127.0.0.1:10809'
         $env:HTTP_PROXY = 'http://127.0.0.1:10809'
         $env:HTTPS_PROXY = 'http://127.0.0.1:10809'
-        $env:NO_PROXY = 'localhost,127.0.0.1'
+        $env:NO_PROXY = 'localhost,127.0.0.1,::1,' + $env:COMPUTERNAME
         Get-Process Antigravity -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 700
         Start-Process -FilePath $ag.App
-        $lblStatus.Text = 'Antigravity запущен через прокси.'
-        $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+        $lblStatus.Text = 'Antigravity запущен через прокси'
+        $lblStatus.ForeColor = $script:Ok
     } catch {
         $lblStatus.Text = 'Не удалось запустить: ' + $_.Exception.Message
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblStatus.ForeColor = $script:Err
     }
 })
 
 $btnPatch.Add_Click({
     if (-not $patcher) {
-        [System.Windows.Forms.MessageBox]::Show('Патчер не найден. Положите Open_AG_Patcher*.exe в папку «Загрузки».')
+        [System.Windows.Forms.MessageBox]::Show('Патчер не найден. Положите Open_AG_Patcher*.exe в «Загрузки».')
         return
     }
     try {
         $patchArgs = @()
         if ($ag.Dir) { $patchArgs = @(('"{0}"' -f $ag.Dir)) }
         Start-Process -FilePath $patcher -ArgumentList $patchArgs -Verb RunAs
-        $lblPatch.Text = 'Патчер запущен. В его меню: PATCH → 1 (IDE) или 2 (Antigravity 2.0).'
-        $lblPatch.ForeColor = [System.Drawing.Color]::DarkOrange
+        $lblPatch.Text = 'патчер запущен — выберите PATCH'
+        $lblPatch.ForeColor = $script:Warn
     } catch {
-        $lblPatch.Text = 'Не удалось запустить патчер: ' + $_.Exception.Message
-        $lblPatch.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblPatch.Text = 'ошибка запуска патчера'
+        $lblPatch.ForeColor = $script:Err
     }
 })
 
@@ -376,19 +402,18 @@ $btnBrowser.Add_Click({
         if (-not $browser) { [System.Windows.Forms.MessageBox]::Show('Chrome или Edge не найден.'); return }
         if (-not (Test-Port)) { Restart-Xray | Out-Null }
         New-Item -ItemType Directory -Force -Path $BrowserProfile | Out-Null
-        $a = @(
+        Start-Process -FilePath $browser -ArgumentList @(
             '--proxy-server=http://127.0.0.1:10809',
+            ('--proxy-bypass-list={0}' -f (Get-BypassList)),
             ('--user-data-dir={0}' -f $BrowserProfile),
             '--no-first-run',
             '--no-default-browser-check',
-            'https://aistudio.google.com/'
-        )
-        Start-Process -FilePath $browser -ArgumentList $a
-        $lblStatus.Text = 'Браузер открыт через прокси: Gemini и AI Studio.'
-        $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+            'https://aistudio.google.com/')
+        $lblStatus.Text = 'Браузер открыт через прокси'
+        $lblStatus.ForeColor = $script:Ok
     } catch {
         $lblStatus.Text = 'Не удалось открыть браузер: ' + $_.Exception.Message
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblStatus.ForeColor = $script:Err
     }
 })
 
@@ -396,32 +421,30 @@ $btnOpenCode.Add_Click({
     try {
         if (-not $opencode) { [System.Windows.Forms.MessageBox]::Show('OpenCode не найден.'); return }
         if (-not (Test-Port)) { Restart-Xray | Out-Null }
+        $bypass = 'localhost,127.0.0.1,::1,' + $env:COMPUTERNAME
         $env:HTTP_PROXY = 'http://127.0.0.1:10809'
         $env:HTTPS_PROXY = 'http://127.0.0.1:10809'
         $env:ALL_PROXY = 'http://127.0.0.1:10809'
-        $env:NO_PROXY = 'localhost,127.0.0.1'
-        Start-Process -FilePath $opencode -ArgumentList @('--proxy-server=http://127.0.0.1:10809')
-        $lblStatus.Text = 'OpenCode запущен через прокси.'
-        $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+        $env:NO_PROXY = $bypass
+        $env:no_proxy = $bypass
+        # без --proxy-server: иначе он проксирует и обращение к своему локальному серверу
+        Start-Process -FilePath $opencode
+        $lblStatus.Text = 'OpenCode запущен через прокси'
+        $lblStatus.ForeColor = $script:Ok
     } catch {
         $lblStatus.Text = 'Не удалось запустить OpenCode: ' + $_.Exception.Message
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblStatus.ForeColor = $script:Err
     }
 })
 
 $chkSystem.Add_Click({
     try {
         Set-SystemProxy $chkSystem.Checked
-        if ($chkSystem.Checked) {
-            $lblStatus.Text = 'Системный прокси включён (127.0.0.1:10809).'
-            $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
-        } else {
-            $lblStatus.Text = 'Системный прокси выключен.'
-            $lblStatus.ForeColor = [System.Drawing.Color]::DimGray
-        }
+        $lblStatus.Text = if ($chkSystem.Checked) { 'Системный прокси включён' } else { 'Системный прокси выключен' }
+        $lblStatus.ForeColor = if ($chkSystem.Checked) { $script:Ok } else { $script:Muted }
     } catch {
         $lblStatus.Text = 'Не удалось изменить системный прокси: ' + $_.Exception.Message
-        $lblStatus.ForeColor = [System.Drawing.Color]::Firebrick
+        $lblStatus.ForeColor = $script:Err
     }
 })
 
