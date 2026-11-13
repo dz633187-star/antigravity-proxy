@@ -16,6 +16,10 @@ public static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(Unma
     [void][Win.ShellApi]::SetCurrentProcessExplicitAppUserModelID('AntigravityProxy.Desktop')
 } catch { }
 
+try {
+    $dpiApi = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);' -Name 'DpiApi' -Namespace 'Win' -PassThru
+    [void][Win.DpiApi]::SetProcessDpiAwarenessContext([IntPtr](-1))
+} catch { }
 # ---------- скруглённые кнопки ----------
 try {
     Add-Type -ReferencedAssemblies System.Drawing, System.Windows.Forms -TypeDefinition @'
@@ -40,7 +44,6 @@ public class UiButton : Button
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
         Cursor = Cursors.Hand;
-        Font = new Font("Segoe UI", 9F);
         BackColor = Color.Transparent;
     }
 
@@ -51,6 +54,8 @@ public class UiButton : Button
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        var bg = Parent != null ? Parent.BackColor : BackColor;
+        using (var bgBrush = new SolidBrush(bg)) g.FillRectangle(bgBrush, ClientRectangle);
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
         using (var path = Round(rect, Radius))
         {
@@ -79,6 +84,13 @@ public class UiButton : Button
 } catch { }
 
 $ErrorActionPreference = 'Stop'
+$script:LogFile = Join-Path $env:TEMP 'antigravity-proxy.log'
+function Write-Log([string]$m) {
+    try { "$(Get-Date -Format 'HH:mm:ss') $m" | Out-File $script:LogFile -Append -Encoding UTF8 } catch { }
+}
+[System.Windows.Forms.Application]::add_ThreadException({ param($s, $e) Write-Log ('THREAD: ' + $e.Exception.ToString()) })
+[System.AppDomain]::CurrentDomain.add_UnhandledException({ param($s, $e) Write-Log ('UNHANDLED: ' + $e.ExceptionObject.ToString()) })
+
 $Dir = Join-Path $env:LOCALAPPDATA 'XrayNL'
 $Cfg = Join-Path $Dir 'config.json'
 $Exe = Join-Path $Dir 'xray.exe'
@@ -191,6 +203,17 @@ function Find-Patcher {
     return ''
 }
 
+function Find-OpenCodeCli {
+    $cmd = Get-Command opencode.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($c in @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\@opencode-aidesktop\resources\opencode-cli.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\@opencode-aidesktop\resources\opencode.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\opencode\opencode.exe'))) {
+        if (Test-Path $c) { return $c }
+    }
+    return ''
+}
 function Test-Patched([string]$path) {
     if (-not $path -or -not (Test-Path $path)) { return $null }
     try {
@@ -274,6 +297,7 @@ $ag = Find-Antigravity
 $patcher = Find-Patcher
 $browser = Find-Browser
 $opencode = Find-OpenCode
+$ocCli = Find-OpenCodeCli
 
 $script:P = Get-Palette $script:Settings.theme
 $script:ThemeTag = @()
@@ -311,6 +335,7 @@ function New-Lbl([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [string]$rol
     $l.Tag = $role
     $fname = if ($bold) { 'Segoe UI Semibold' } else { 'Segoe UI' }
     $l.Font = New-Object System.Drawing.Font($fname, $size)
+    $l.ForeColor = if ($role -eq 'muted') { $script:P.muted } else { $script:P.ink }
     return $l
 }
 
@@ -363,18 +388,25 @@ $btnStart.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 9.5)
 $form.Controls.Add($btnStart)
 
 $btnBrowser = New-Object UiButton
-$btnBrowser.Text = 'Браузер: Gemini и AI Studio'
+$btnBrowser.Text = 'Браузер: Gemini'
 $btnBrowser.Location = New-Object System.Drawing.Point(16, 254)
-$btnBrowser.Size = New-Object System.Drawing.Size(288, 38)
+$btnBrowser.Size = New-Object System.Drawing.Size(200, 38)
 $btnBrowser.Radius = 9
 $form.Controls.Add($btnBrowser)
 
-$btnOpenCode = New-Object UiButton
-$btnOpenCode.Text = 'OpenCode'
-$btnOpenCode.Location = New-Object System.Drawing.Point(314, 254)
-$btnOpenCode.Size = New-Object System.Drawing.Size(190, 38)
-$btnOpenCode.Radius = 9
-$form.Controls.Add($btnOpenCode)
+$btnOcGui = New-Object UiButton
+$btnOcGui.Text = 'OpenCode GUI'
+$btnOcGui.Location = New-Object System.Drawing.Point(224, 254)
+$btnOcGui.Size = New-Object System.Drawing.Size(130, 38)
+$btnOcGui.Radius = 9
+$form.Controls.Add($btnOcGui)
+
+$btnOcCli = New-Object UiButton
+$btnOcCli.Text = 'OpenCode CLI'
+$btnOcCli.Location = New-Object System.Drawing.Point(362, 254)
+$btnOcCli.Size = New-Object System.Drawing.Size(142, 38)
+$btnOcCli.Radius = 9
+$form.Controls.Add($btnOcCli)
 
 # карточка состояния
 $card2 = New-Object System.Windows.Forms.Panel
@@ -438,7 +470,7 @@ function Apply-Theme {
     foreach ($c in @($card1, $card2)) {
         $c.BackColor = $p.card
     }
-    foreach ($b in @($btnTest, $btnBrowser, $btnOpenCode, $btnPatch, $btnTheme, $btnSettings)) {
+    foreach ($b in @($btnTest, $btnBrowser, $btnOcGui, $btnOcCli, $btnPatch, $btnTheme, $btnSettings)) {
         $b.Fill = $p.secondaryFill
         $b.Hover = $p.border
         $b.Border = $p.border
@@ -613,13 +645,17 @@ $miExit.Add_Click({
 
 $script:traymsg = $false
 $form.Add_Resize({
-    if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
-        $form.Hide()
-        $notify.Visible = $true
-        if (-not $script:traymsg) {
-            $notify.ShowBalloonTip(1500, 'Antigravity Proxy', 'Свернуто в трей. Двойной клик — открыть.', [System.Windows.Forms.ToolTipIcon]::None)
-            $script:traymsg = $true
+    try {
+        if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+            $form.Hide()
+            $notify.Visible = $true
+            if (-not $script:traymsg) {
+                $script:traymsg = $true
+                $notify.ShowBalloonTip(1500, 'Antigravity Proxy', 'Свернуто в трей. Двойной клик — открыть.', [System.Windows.Forms.ToolTipIcon]::None)
+            }
         }
+    } catch {
+        Write-Log ('RESIZE: ' + $_.Exception.ToString())
     }
 })
 
@@ -675,18 +711,31 @@ $btnBrowser.Add_Click({
     } catch { [System.Windows.Forms.MessageBox]::Show('Не удалось открыть браузер: ' + $_.Exception.Message) }
 })
 
-$btnOpenCode.Add_Click({
+function Set-ProxyEnv {
+    $bypass = 'localhost,127.0.0.1,::1,' + $env:COMPUTERNAME
+    $env:HTTP_PROXY = 'http://127.0.0.1:10809'
+    $env:HTTPS_PROXY = 'http://127.0.0.1:10809'
+    $env:ALL_PROXY = 'http://127.0.0.1:10809'
+    $env:NO_PROXY = $bypass
+    $env:no_proxy = $bypass
+}
+
+$btnOcGui.Add_Click({
     try {
-        if (-not $opencode) { [System.Windows.Forms.MessageBox]::Show('OpenCode не найден.'); return }
+        if (-not $opencode) { [System.Windows.Forms.MessageBox]::Show('OpenCode GUI не найден.'); return }
         if (-not (Test-Port)) { Restart-Xray | Out-Null }
-        $bypass = 'localhost,127.0.0.1,::1,' + $env:COMPUTERNAME
-        $env:HTTP_PROXY = 'http://127.0.0.1:10809'
-        $env:HTTPS_PROXY = 'http://127.0.0.1:10809'
-        $env:ALL_PROXY = 'http://127.0.0.1:10809'
-        $env:NO_PROXY = $bypass
-        $env:no_proxy = $bypass
+        Set-ProxyEnv
         Start-Process -FilePath $opencode
-    } catch { [System.Windows.Forms.MessageBox]::Show('Не удалось запустить OpenCode: ' + $_.Exception.Message) }
+    } catch { [System.Windows.Forms.MessageBox]::Show('Не удалось запустить OpenCode GUI: ' + $_.Exception.Message) }
+})
+
+$btnOcCli.Add_Click({
+    try {
+        if (-not $ocCli) { [System.Windows.Forms.MessageBox]::Show('OpenCode CLI не найден.'); return }
+        if (-not (Test-Port)) { Restart-Xray | Out-Null }
+        Set-ProxyEnv
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoExit', '-NoProfile', '-Command', ('& "' + $ocCli + '"'))
+    } catch { [System.Windows.Forms.MessageBox]::Show('Не удалось запустить OpenCode CLI: ' + $_.Exception.Message) }
 })
 
 $btnPatch.Add_Click({
@@ -716,4 +765,4 @@ $form.Add_Shown({
     Update-Patch
     if ($env:ANTIGRAVITY_PROXY_OPEN_SETTINGS -eq '1') { Show-Settings }
 })
-[void]$form.ShowDialog()
+[System.Windows.Forms.Application]::Run($form)
