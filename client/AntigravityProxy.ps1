@@ -16,10 +16,41 @@ public static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(Unma
     [void][Win.ShellApi]::SetCurrentProcessExplicitAppUserModelID('AntigravityProxy.Desktop')
 } catch { }
 
+$script:NeedScale = $false
+$script:K = 1.0
 try {
     $dpiApi = Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);' -Name 'DpiApi' -Namespace 'Win' -PassThru
-    [void][Win.DpiApi]::SetProcessDpiAwarenessContext([IntPtr](-1))
-} catch { }
+    $unaware = [Win.DpiApi]::SetProcessDpiAwarenessContext([IntPtr](-1))
+    if (-not $unaware) { $script:NeedScale = $true }
+} catch {
+    $script:NeedScale = $true
+}
+if ($script:NeedScale) {
+    try {
+        $gfx = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+        $script:K = [double]$gfx.DpiX / 96.0
+        $gfx.Dispose()
+    } catch { $script:K = 1.0 }
+    if ($script:K -lt 1.0) { $script:K = 1.0 }
+}
+
+function Scale-Fonts([object]$ctrl) {
+    foreach ($c in $ctrl.Controls) {
+        try {
+            if ($c.Font) {
+                $c.Font = New-Object System.Drawing.Font($c.Font.FontFamily, [float]($c.Font.Size * $script:K), $c.Font.Style)
+            }
+        } catch { }
+        Scale-Fonts $c
+    }
+}
+
+function Scale-Form([object]$f) {
+    if (-not $script:NeedScale) { return }
+    if ([Math]::Abs($script:K - 1.0) -lt 0.01) { return }
+    $f.Scale((New-Object System.Drawing.SizeF([float]$script:K, [float]$script:K)))
+    # шрифты уже масштабируются системой (процесс DPI-aware), размеры масштабируем сами
+}
 # ---------- скруглённые кнопки ----------
 try {
     Add-Type -ReferencedAssemblies System.Drawing, System.Windows.Forms -TypeDefinition @'
@@ -311,6 +342,7 @@ $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
 $form.ShowInTaskbar = $true
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
 if (Test-Path $IconPath) { try { $form.Icon = New-Object System.Drawing.Icon($IconPath) } catch { } }
 
 function Add-Ui([object]$ctrl, [string]$role) {
@@ -354,8 +386,8 @@ $form.Controls.Add($btnTheme)
 
 $btnSettings = New-Object UiButton
 $btnSettings.Text = 'Настройки'
-$btnSettings.Location = New-Object System.Drawing.Point(296, 12)
-$btnSettings.Size = New-Object System.Drawing.Size(100, 32)
+$btnSettings.Location = New-Object System.Drawing.Point(288, 12)
+$btnSettings.Size = New-Object System.Drawing.Size(112, 32)
 $btnSettings.Font = New-Object System.Drawing.Font('Segoe UI', 8)
 $btnSettings.Radius = 8
 $form.Controls.Add($btnSettings)
@@ -534,6 +566,7 @@ function Show-Settings {
     $sf.MinimizeBox = $false
     $sf.BackColor = $p.bg
     $sf.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $sf.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
     if ($form.Icon) { $sf.Icon = $form.Icon }
 
     $info = Get-ProxyInfo
@@ -611,6 +644,7 @@ function Show-Settings {
     })
 
     $btnCancel.Add_Click({ $sf.Close() })
+    Scale-Form $sf
     [void]$sf.ShowDialog($form)
 }
 
@@ -757,6 +791,7 @@ $btnSysProxy.Add_Click({
 })
 
 # ---------- старт ----------
+Scale-Form $form
 Apply-Theme
 $form.Add_Shown({
     $form.Activate(); $form.TopMost = $true; $form.TopMost = $false
