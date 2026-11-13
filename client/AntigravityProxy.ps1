@@ -226,6 +226,10 @@ $form.MaximizeBox = $false
 $form.BackColor = $script:Bg
 $form.ShowInTaskbar = $true
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$IconPath = Join-Path $PSScriptRoot 'AntigravityProxy.ico'
+if (Test-Path $IconPath) {
+    try { $form.Icon = New-Object System.Drawing.Icon($IconPath) } catch { }
+}
 
 # --- карточка «Прокси» ---
 $card1 = New-Object System.Windows.Forms.Panel
@@ -448,6 +452,33 @@ $chkSystem.Add_Click({
     }
 })
 
+$script:exiting = $false
+$appIcon = if ($form.Icon) { $form.Icon } else { [System.Drawing.SystemIcons]::Application }
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = $appIcon
+$notify.Text = 'Antigravity Proxy'
+$notify.Visible = $true
+$trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$miOpen = $trayMenu.Items.Add('Открыть')
+$miExit = $trayMenu.Items.Add('Выход')
+$notify.ContextMenuStrip = $trayMenu
+
+$showForm = {
+    $form.Show()
+    $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+    $form.Activate()
+}
+$notify.Add_DoubleClick($showForm)
+$miOpen.Add_Click($showForm)
+$miExit.Add_Click({ $script:exiting = $true; $notify.Visible = $false; $form.Close() })
+
+$form.Add_Resize({
+    if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $form.Hide()
+        $notify.ShowBalloonTip(1500, 'Antigravity Proxy', 'Свернуто в трей. Двойной клик — открыть.', [System.Windows.Forms.ToolTipIcon]::None)
+    }
+})
+$form.Add_FormClosed({ $notify.Visible = $false; $notify.Dispose() })
 $form.Add_Shown({
     $form.Activate(); $form.TopMost = $true; $form.TopMost = $false
     if (-not (Test-Port)) { Restart-Xray | Out-Null }
