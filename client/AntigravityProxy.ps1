@@ -62,11 +62,10 @@ using System.Windows.Forms;
 public class UiButton : Button
 {
     public int Radius = 9;
-    public Color Fill = Color.FromArgb(37, 99, 235);
-    public Color Hover = Color.FromArgb(29, 78, 216);
-    public Color Border = Color.Transparent;
-    public Color TextColor = Color.White;
-    private bool _hover;
+    private Color _fill = Color.FromArgb(37, 99, 235);
+    private Color _hover = Color.FromArgb(29, 78, 216);
+    public Color Fill { get { return _fill; } set { _fill = value; BackColor = value; } }
+    public Color Hover { get { return _hover; } set { _hover = value; } }
 
     public UiButton()
     {
@@ -75,34 +74,39 @@ public class UiButton : Button
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
         Cursor = Cursors.Hand;
-        BackColor = Color.Transparent;
+        UseVisualStyleBackColor = false;
     }
 
-    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
-    protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseEnter(EventArgs e) { BackColor = Hover; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { BackColor = Fill; Invalidate(); base.OnMouseLeave(e); }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (Width < 1 || Height < 1) return;
+        using (var path = Round(new Rectangle(0, 0, Width, Height), Radius))
+            Region = new Region(path);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        var bg = Parent != null ? Parent.BackColor : BackColor;
-        using (var bgBrush = new SolidBrush(bg)) g.FillRectangle(bgBrush, ClientRectangle);
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
         using (var path = Round(rect, Radius))
-        {
-            using (var b = new SolidBrush(_hover ? Hover : Fill)) g.FillPath(b, path);
-            if (Border != Color.Transparent)
-                using (var p = new Pen(Border)) g.DrawPath(p, path);
-        }
-        TextRenderer.DrawText(g, Text, Font, rect, TextColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        using (var b = new SolidBrush(BackColor))
+            g.FillPath(b, path);
+        TextRenderer.DrawText(g, Text, Font, rect, ForeColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
     private static GraphicsPath Round(Rectangle r, int radius)
     {
         var p = new GraphicsPath();
         int d = radius * 2;
-        if (d <= 0 || d > r.Height) d = r.Height;
+        if (d <= 0) { p.AddRectangle(r); return p; }
+        if (d > r.Width) d = r.Width;
+        if (d > r.Height) d = r.Height;
         p.AddArc(r.X, r.Y, d, d, 180, 90);
         p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
         p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
@@ -379,8 +383,8 @@ $form.Controls.Add($lblSub)
 
 $btnTheme = New-Object UiButton
 $btnTheme.Text = ''
-$btnTheme.Location = New-Object System.Drawing.Point(406, 12)
-$btnTheme.Size = New-Object System.Drawing.Size(40, 32)
+$btnTheme.Location = New-Object System.Drawing.Point(402, 12)
+$btnTheme.Size = New-Object System.Drawing.Size(88, 32)
 $btnTheme.Radius = 8
 $form.Controls.Add($btnTheme)
 
@@ -388,7 +392,6 @@ $btnSettings = New-Object UiButton
 $btnSettings.Text = 'Настройки'
 $btnSettings.Location = New-Object System.Drawing.Point(288, 12)
 $btnSettings.Size = New-Object System.Drawing.Size(112, 32)
-$btnSettings.Font = New-Object System.Drawing.Font('Segoe UI', 8)
 $btnSettings.Radius = 8
 $form.Controls.Add($btnSettings)
 
@@ -476,13 +479,11 @@ function Update-SysProxyButton {
     if ($on) {
         $btnSysProxy.Fill = $script:P.accent
         $btnSysProxy.Hover = $script:P.accentHover
-        $btnSysProxy.Border = [System.Drawing.Color]::Transparent
-        $btnSysProxy.TextColor = [System.Drawing.Color]::White
+        $btnSysProxy.ForeColor = [System.Drawing.Color]::White
     } else {
         $btnSysProxy.Fill = $script:P.secondaryFill
         $btnSysProxy.Hover = $script:P.border
-        $btnSysProxy.Border = $script:P.border
-        $btnSysProxy.TextColor = $script:P.secondaryText
+        $btnSysProxy.ForeColor = $script:P.secondaryText
     }
     $btnSysProxy.Invalidate()
 }
@@ -505,16 +506,13 @@ function Apply-Theme {
     foreach ($b in @($btnTest, $btnBrowser, $btnOcGui, $btnOcCli, $btnPatch, $btnTheme, $btnSettings)) {
         $b.Fill = $p.secondaryFill
         $b.Hover = $p.border
-        $b.Border = $p.border
-        $b.TextColor = $p.secondaryText
+        $b.ForeColor = $p.secondaryText
     }
     $btnStart.Fill = $p.accent
     $btnStart.Hover = $p.accentHover
-    $btnStart.Border = [System.Drawing.Color]::Transparent
-    $btnStart.TextColor = [System.Drawing.Color]::White
-    $btnTheme.Text = if ($script:Settings.theme -eq 'dark') { '☀' } else { '☾' }
-    $btnTheme.Font = New-Object System.Drawing.Font('Segoe UI Symbol', 11)
-    $btnTheme.TextColor = $p.ink
+    $btnStart.ForeColor = [System.Drawing.Color]::White
+    $btnTheme.Text = if ($script:Settings.theme -eq 'dark') { 'Светлая' } else { 'Тёмная' }
+    $btnTheme.ForeColor = $p.ink
     Update-SysProxyButton
     $form.Invalidate($true)
 }
@@ -591,7 +589,7 @@ function Show-Settings {
     $btnApplyProxy.Size = New-Object System.Drawing.Size(180, 34)
     $btnApplyProxy.Radius = 8
     $btnApplyProxy.Fill = $p.accent; $btnApplyProxy.Hover = $p.accentHover
-    $btnApplyProxy.Border = [System.Drawing.Color]::Transparent; $btnApplyProxy.TextColor = [System.Drawing.Color]::White
+    $btnApplyProxy.ForeColor = [System.Drawing.Color]::White
     $sf.Controls.Add($btnApplyProxy)
 
     $sf.Controls.Add((New-Lbl 'Тема' 18 206 200 22 'ink' 10.5 $true))
@@ -613,7 +611,7 @@ function Show-Settings {
     $btnSave.Size = New-Object System.Drawing.Size(140, 36)
     $btnSave.Radius = 9
     $btnSave.Fill = $p.accent; $btnSave.Hover = $p.accentHover
-    $btnSave.Border = [System.Drawing.Color]::Transparent; $btnSave.TextColor = [System.Drawing.Color]::White
+    $btnSave.ForeColor = [System.Drawing.Color]::White
     $sf.Controls.Add($btnSave)
 
     $btnCancel = New-Object UiButton
@@ -622,7 +620,7 @@ function Show-Settings {
     $btnCancel.Size = New-Object System.Drawing.Size(120, 36)
     $btnCancel.Radius = 9
     $btnCancel.Fill = $p.secondaryFill; $btnCancel.Hover = $p.border
-    $btnCancel.Border = $p.border; $btnCancel.TextColor = $p.secondaryText
+    $btnCancel.ForeColor = $p.secondaryText
     $sf.Controls.Add($btnCancel)
 
     $btnApplyProxy.Add_Click({
