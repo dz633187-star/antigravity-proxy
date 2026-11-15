@@ -57,62 +57,207 @@ try {
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Windows.Forms;
 
 public class UiButton : Button
 {
-    public int Radius = 9;
+    public int Radius { get; set; }
+
     private Color _fill = Color.FromArgb(37, 99, 235);
-    private Color _hover = Color.FromArgb(29, 78, 216);
-    public Color Fill { get { return _fill; } set { _fill = value; BackColor = value; } }
-    public Color Hover { get { return _hover; } set { _hover = value; } }
+    public Color Fill
+    {
+        get { return _fill; }
+        set { _fill = value; BackColor = value; Invalidate(); }
+    }
+
+    private Color _hover = Color.FromArgb(59, 130, 246);
+    public Color Hover
+    {
+        get { return _hover; }
+        set { _hover = value; Invalidate(); }
+    }
+
+    private Color _pressed = Color.FromArgb(29, 78, 216);
+    public Color Pressed
+    {
+        get { return _pressed; }
+        set { _pressed = value; Invalidate(); }
+    }
+
+    private Color _borderColor = Color.Empty;
+    public Color BorderColor
+    {
+        get { return _borderColor; }
+        set { _borderColor = value; Invalidate(); }
+    }
+
+    private Color _hoverBorderColor = Color.Empty;
+    public Color HoverBorderColor
+    {
+        get { return _hoverBorderColor; }
+        set { _hoverBorderColor = value; Invalidate(); }
+    }
+
+    private int _borderWidth = 0;
+    public int BorderWidth
+    {
+        get { return _borderWidth; }
+        set { _borderWidth = value; Invalidate(); }
+    }
+
+    private bool _isHovered = false;
+    private bool _isPressed = false;
 
     public UiButton()
     {
-        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
-                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Radius = 7;
+        SetStyle(ControlStyles.AllPaintingInWmPaint |
+                 ControlStyles.UserPaint |
+                 ControlStyles.OptimizedDoubleBuffer |
+                 ControlStyles.ResizeRedraw |
+                 ControlStyles.SupportsTransparentBackColor, true);
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
         Cursor = Cursors.Hand;
         UseVisualStyleBackColor = false;
+        BackColor = Color.Transparent;
     }
 
-    protected override void OnMouseEnter(EventArgs e) { BackColor = Hover; Invalidate(); base.OnMouseEnter(e); }
-    protected override void OnMouseLeave(EventArgs e) { BackColor = Fill; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseEnter(EventArgs e) { _isHovered = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _isHovered = false; _isPressed = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { _isPressed = true; Invalidate(); } base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { _isPressed = false; Invalidate(); base.OnMouseUp(e); }
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        if (Width < 1 || Height < 1) return;
-        using (var path = Round(new Rectangle(0, 0, Width, Height), Radius))
-            Region = new Region(path);
+        // Не используем Region = new Region(path) — это предотвращает зубчатые не-антиалиасенные края GDI!
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-        using (var path = Round(rect, Radius))
-        using (var b = new SolidBrush(BackColor))
-            g.FillPath(b, path);
-        TextRenderer.DrawText(g, Text, Font, rect, ForeColor,
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+        // Заливаем углы цветом родителя для идеального бесшовного скругления
+        Color parentBg = Parent != null ? Parent.BackColor : BackColor;
+        using (var pb = new SolidBrush(parentBg))
+        {
+            g.FillRectangle(pb, ClientRectangle);
+        }
+
+        if (Width <= 3 || Height <= 3) return;
+
+        Color currentFill = Fill;
+        if (!Enabled)
+        {
+            currentFill = Color.FromArgb(70, Fill);
+        }
+        else if (_isPressed && Pressed != Color.Empty)
+        {
+            currentFill = Pressed;
+        }
+        else if (_isHovered && Hover != Color.Empty)
+        {
+            currentFill = Hover;
+        }
+
+        Color currentBorder = BorderColor;
+        if (_isHovered && HoverBorderColor != Color.Empty)
+        {
+            currentBorder = HoverBorderColor;
+        }
+
+        int r = Radius;
+        if (r * 2 > Height) r = (int)(Height / 2);
+        if (r * 2 > Width) r = (int)(Width / 2);
+
+        // Плавная заливка скругленного прямоугольника
+        using (var pathFill = GetRoundPath(new RectangleF(0f, 0f, Width, Height), r))
+        using (var b = new SolidBrush(currentFill))
+        {
+            g.FillPath(b, pathFill);
+        }
+
+        // Четкая 1px обводка с половинным сдвигом
+        if (BorderWidth > 0 && currentBorder != Color.Empty && currentBorder.A > 0)
+        {
+            using (var pathBorder = GetRoundPath(new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f), r))
+            using (var pen = new Pen(currentBorder, 1f))
+            {
+                g.DrawPath(pen, pathBorder);
+            }
+        }
+
+        // Текст с микро-сдвигом при нажатии для тактильного отклика
+        var textRect = new Rectangle(0, 0, Width, Height);
+        if (_isPressed) { textRect.Offset(0, 1); }
+
+        Color textColor = Enabled ? ForeColor : Color.FromArgb(120, ForeColor);
+        TextRenderer.DrawText(g, Text, Font, textRect, textColor,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
-    private static GraphicsPath Round(Rectangle r, int radius)
+    public static GraphicsPath GetRoundPath(RectangleF rect, float radius)
     {
-        var p = new GraphicsPath();
-        int d = radius * 2;
-        if (d <= 0) { p.AddRectangle(r); return p; }
-        if (d > r.Width) d = r.Width;
-        if (d > r.Height) d = r.Height;
-        p.AddArc(r.X, r.Y, d, d, 180, 90);
-        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-        p.CloseFigure();
-        return p;
+        var path = new GraphicsPath();
+        if (radius <= 0) { path.AddRectangle(rect); return path; }
+        float d = radius * 2f;
+        path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+        path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+}
+
+public class UiComboBox : ComboBox
+{
+    public Color ItemBackColor { get; set; }
+    public Color ItemForeColor { get; set; }
+    public Color SelectedItemBackColor { get; set; }
+    public Color SelectedItemForeColor { get; set; }
+
+    public UiComboBox()
+    {
+        this.DropDownStyle = ComboBoxStyle.DropDownList;
+        this.DrawMode = DrawMode.OwnerDrawFixed;
+        this.FlatStyle = FlatStyle.Flat;
+        this.ItemHeight = 22;
+        this.ItemBackColor = Color.FromArgb(33, 38, 47);
+        this.ItemForeColor = Color.FromArgb(240, 243, 246);
+        this.SelectedItemBackColor = Color.FromArgb(37, 99, 235);
+        this.SelectedItemForeColor = Color.White;
+    }
+
+    protected override void OnDrawItem(DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= this.Items.Count) return;
+
+        bool isSelected = (e.State & DrawItemState.Selected) != 0;
+        Color bg = isSelected ? SelectedItemBackColor : ItemBackColor;
+        Color fg = isSelected ? SelectedItemForeColor : ItemForeColor;
+
+        using (SolidBrush b = new SolidBrush(bg))
+        {
+            e.Graphics.FillRectangle(b, e.Bounds);
+        }
+
+        string text = this.Items[e.Index] != null ? this.Items[e.Index].ToString() : string.Empty;
+        using (SolidBrush bText = new SolidBrush(fg))
+        using (StringFormat sf = new StringFormat { LineAlignment = StringAlignment.Center })
+        {
+            float x = (float)(e.Bounds.X + 6);
+            float y = (float)e.Bounds.Y;
+            float w = (float)Math.Max(0, e.Bounds.Width - 6);
+            float h = (float)e.Bounds.Height;
+            RectangleF rect = new RectangleF(x, y, w, h);
+            e.Graphics.DrawString(text, this.Font, bText, rect, sf);
+        }
     }
 }
 '@
@@ -132,7 +277,7 @@ $Exe = Join-Path $Dir 'xray.exe'
 $AppRoot = Join-Path $env:LOCALAPPDATA 'AntigravityProxy'
 $BrowserProfile = Join-Path $AppRoot 'BrowserProfile'
 $SettingsPath = Join-Path $AppRoot 'settings.json'
-$IconPath = Join-Path $PSScriptRoot 'AntigravityProxy.ico'
+$IconPath = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'AntigravityProxy.ico' } else { 'AntigravityProxy.ico' }
 
 # ---------- настройки ----------
 $script:Settings = @{ theme = 'dark' }
@@ -150,32 +295,42 @@ function Get-Palette([string]$theme) {
     if ($theme -eq 'dark') {
         return @{
             bg = [System.Drawing.Color]::FromArgb(20, 22, 27)
-            card = [System.Drawing.Color]::FromArgb(30, 33, 40)
-            ink = [System.Drawing.Color]::FromArgb(235, 238, 243)
-            muted = [System.Drawing.Color]::FromArgb(148, 157, 171)
-            border = [System.Drawing.Color]::FromArgb(48, 53, 63)
-            accent = [System.Drawing.Color]::FromArgb(59, 130, 246)
-            accentHover = [System.Drawing.Color]::FromArgb(37, 99, 235)
-            ok = [System.Drawing.Color]::FromArgb(74, 222, 128)
-            warn = [System.Drawing.Color]::FromArgb(251, 191, 36)
-            err = [System.Drawing.Color]::FromArgb(248, 113, 113)
-            secondaryFill = [System.Drawing.Color]::FromArgb(38, 42, 51)
-            secondaryText = [System.Drawing.Color]::FromArgb(226, 230, 236)
+            card = [System.Drawing.Color]::FromArgb(28, 32, 40)
+            ink = [System.Drawing.Color]::FromArgb(240, 243, 246)
+            muted = [System.Drawing.Color]::FromArgb(140, 149, 159)
+            border = [System.Drawing.Color]::FromArgb(48, 54, 61)
+            accent = [System.Drawing.Color]::FromArgb(37, 99, 235)
+            accentHover = [System.Drawing.Color]::FromArgb(59, 130, 246)
+            accentPressed = [System.Drawing.Color]::FromArgb(29, 78, 216)
+            ok = [System.Drawing.Color]::FromArgb(46, 160, 67)
+            warn = [System.Drawing.Color]::FromArgb(210, 153, 34)
+            err = [System.Drawing.Color]::FromArgb(248, 81, 73)
+            secondaryFill = [System.Drawing.Color]::FromArgb(33, 38, 47)
+            secondaryHover = [System.Drawing.Color]::FromArgb(46, 53, 65)
+            secondaryPressed = [System.Drawing.Color]::FromArgb(26, 30, 38)
+            secondaryBorder = [System.Drawing.Color]::FromArgb(56, 63, 76)
+            secondaryHoverBorder = [System.Drawing.Color]::FromArgb(99, 110, 130)
+            secondaryText = [System.Drawing.Color]::FromArgb(226, 232, 240)
         }
     }
     return @{
-        bg = [System.Drawing.Color]::FromArgb(246, 247, 249)
+        bg = [System.Drawing.Color]::FromArgb(246, 248, 250)
         card = [System.Drawing.Color]::White
         ink = [System.Drawing.Color]::FromArgb(24, 32, 44)
-        muted = [System.Drawing.Color]::FromArgb(110, 120, 134)
-        border = [System.Drawing.Color]::FromArgb(227, 231, 237)
+        muted = [System.Drawing.Color]::FromArgb(100, 116, 139)
+        border = [System.Drawing.Color]::FromArgb(226, 232, 240)
         accent = [System.Drawing.Color]::FromArgb(37, 99, 235)
         accentHover = [System.Drawing.Color]::FromArgb(29, 78, 216)
-        ok = [System.Drawing.Color]::FromArgb(21, 128, 61)
-        warn = [System.Drawing.Color]::FromArgb(180, 83, 9)
-        err = [System.Drawing.Color]::FromArgb(185, 28, 28)
-        secondaryFill = [System.Drawing.Color]::White
-        secondaryText = [System.Drawing.Color]::FromArgb(24, 32, 44)
+        accentPressed = [System.Drawing.Color]::FromArgb(30, 64, 175)
+        ok = [System.Drawing.Color]::FromArgb(16, 185, 129)
+        warn = [System.Drawing.Color]::FromArgb(217, 119, 6)
+        err = [System.Drawing.Color]::FromArgb(239, 68, 68)
+        secondaryFill = [System.Drawing.Color]::FromArgb(248, 250, 252)
+        secondaryHover = [System.Drawing.Color]::FromArgb(241, 245, 249)
+        secondaryPressed = [System.Drawing.Color]::FromArgb(226, 232, 240)
+        secondaryBorder = [System.Drawing.Color]::FromArgb(203, 213, 225)
+        secondaryHoverBorder = [System.Drawing.Color]::FromArgb(148, 163, 184)
+        secondaryText = [System.Drawing.Color]::FromArgb(30, 41, 59)
     }
 }
 
@@ -328,6 +483,179 @@ function Test-SystemProxy {
     return ($p.ProxyEnable -eq 1 -and $p.ProxyServer -like '*10809*')
 }
 
+# ---------- мульти-прокси ----------
+function Ensure-ProxySettings {
+    $existing = @()
+    if ($script:Settings -and $script:Settings.proxies) {
+        $existing = @($script:Settings.proxies)
+    }
+    if ($existing.Count -eq 0) {
+        $cur = Get-ProxyInfo
+        if ($cur -and $cur.host) {
+            $existing = @([PSCustomObject]@{
+                name = 'Основной'
+                host = [string]$cur.host
+                port = [string]$cur.port
+                user = [string]$cur.user
+                pass = [string]$cur.pass
+            })
+        } else {
+            $existing = @([PSCustomObject]@{
+                name = 'Основной'
+                host = ''
+                port = '8000'
+                user = ''
+                pass = ''
+            })
+        }
+    }
+    $idx = 0
+    if ($script:Settings -and ($null -ne $script:Settings.activeProxyIndex)) {
+        try {
+            $idx = [int]$script:Settings.activeProxyIndex
+            if ($idx -lt 0 -or $idx -ge $existing.Count) { $idx = 0 }
+        } catch { $idx = 0 }
+    }
+    $script:Settings = [PSCustomObject]@{
+        theme = if ($script:Settings -and $script:Settings.theme) { $script:Settings.theme } else { 'dark' }
+        activeProxyIndex = $idx
+        proxies = $existing
+    }
+    Save-Settings
+}
+
+function Get-ActiveProxy {
+    $arr = @($script:Settings.proxies)
+    if ($arr.Count -eq 0) { return $null }
+    $idx = 0
+    if ($script:Settings -and ($null -ne $script:Settings.activeProxyIndex)) {
+        try {
+            $idx = [int]$script:Settings.activeProxyIndex
+            if ($idx -lt 0 -or $idx -ge $arr.Count) { $idx = 0 }
+        } catch { $idx = 0 }
+    }
+    return $arr[$idx]
+}
+
+function Switch-ActiveProxy([int]$newIndex) {
+    $arr = @($script:Settings.proxies)
+    if ($newIndex -lt 0 -or $newIndex -ge $arr.Count) { return }
+    $script:Settings.activeProxyIndex = $newIndex
+    Save-Settings
+    $p = $arr[$newIndex]
+    if ($p -and $p.host) {
+        $lblStatus.Text = 'Переключение прокси…'
+        $lblStatus.ForeColor = $script:P.warn
+        $form.Update()
+        try {
+            Write-ProxyConfig $p.host $p.port $p.user $p.pass
+            Restart-Xray | Out-Null
+        } catch { }
+        Update-Status
+    }
+}
+
+function Refresh-ProxyComboBox {
+    if (-not $cbActiveProxy) { return }
+    $script:updatingProxyCb = $true
+    try {
+        $cbActiveProxy.Items.Clear()
+        $arr = @($script:Settings.proxies)
+        for ($i = 0; $i -lt $arr.Count; $i++) {
+            $px = $arr[$i]
+            $n = if ($px.name) { $px.name } else { "Прокси $($i + 1)" }
+            $h = if ($px.host) { "$($px.host):$($px.port)" } else { "не настроен" }
+            $cbActiveProxy.Items.Add("$n ($h)") | Out-Null
+        }
+        $idx = 0
+        if ($script:Settings -and ($null -ne $script:Settings.activeProxyIndex)) {
+            $idx = [int]$script:Settings.activeProxyIndex
+            if ($idx -lt 0 -or $idx -ge $arr.Count) { $idx = 0 }
+        }
+        if ($arr.Count -gt 0) {
+            $cbActiveProxy.SelectedIndex = $idx
+        }
+    } finally {
+        $script:updatingProxyCb = $false
+    }
+}
+
+function Test-DirectProxyInfo([string]$h, [string]$pt, [string]$u, [string]$pw) {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $proxy = New-Object System.Net.WebProxy(('http://{0}:{1}' -f $h, $pt))
+        if ($u) {
+            $proxy.Credentials = New-Object System.Net.NetworkCredential($u, $pw)
+        }
+        $req = [System.Net.HttpWebRequest]::Create('https://ipinfo.io/json')
+        $req.Proxy = $proxy
+        $req.Timeout = 7000
+        $req.ReadWriteTimeout = 7000
+        $resp = $req.GetResponse()
+        $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
+        $text = $reader.ReadToEnd()
+        $reader.Close()
+        $resp.Close()
+        $sw.Stop()
+        $j = $text | ConvertFrom-Json
+        return @{ ok = $true; ip = $j.ip; country = $j.country; city = $j.city; ms = [Math]::Round($sw.Elapsed.TotalMilliseconds) }
+    } catch {
+        $sw.Stop()
+        $errMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+        return @{ ok = $false; error = $errMsg; ms = [Math]::Round($sw.Elapsed.TotalMilliseconds) }
+    }
+}
+
+function Measure-ProxySpeed([string]$h = '', [string]$pt = '', [string]$u = '', [string]$pw = '', [int]$bytes = 524288) {
+    try {
+        $proxy = $null
+        if ($h -and $pt) {
+            $proxy = New-Object System.Net.WebProxy(('http://{0}:{1}' -f $h, $pt))
+            if ($u) {
+                $proxy.Credentials = New-Object System.Net.NetworkCredential($u, $pw)
+            }
+        } else {
+            $proxy = New-Object System.Net.WebProxy('http://127.0.0.1:10809')
+        }
+
+        $nocache = [Guid]::NewGuid().ToString('N')
+        $url = ('https://speed.cloudflare.com/__down?bytes={0}&nocache={1}' -f $bytes, $nocache)
+        $req = [System.Net.HttpWebRequest]::Create($url)
+        $req.Proxy = $proxy
+        $req.KeepAlive = $false
+        $req.Headers.Add('Cache-Control', 'no-cache, no-store')
+        $req.Headers.Add('Pragma', 'no-cache')
+        $req.Timeout = 10000
+        $req.ReadWriteTimeout = 10000
+
+        # 1. Замер задержки ответа (TTFB / пинг)
+        $swPing = [System.Diagnostics.Stopwatch]::StartNew()
+        $resp = $req.GetResponse()
+        $swPing.Stop()
+        $pingMs = [Math]::Round($swPing.Elapsed.TotalMilliseconds)
+
+        # 2. Замер чистой скорости загрузки потока данных (Throughput)
+        $swDl = [System.Diagnostics.Stopwatch]::StartNew()
+        $stream = $resp.GetResponseStream()
+        $buf = New-Object byte[] 32768
+        $total = 0
+        while (($read = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+            $total += $read
+        }
+        $stream.Close()
+        $resp.Close()
+        $swDl.Stop()
+
+        $sec = $swDl.Elapsed.TotalSeconds
+        if ($sec -le 0.005) { $sec = 0.005 }
+        $mbps = [Math]::Round((($total * 8) / 1000000) / $sec, 2)
+        return @{ ok = $true; mbps = $mbps; ping = $pingMs; bytes = $total; sec = [Math]::Round($sec, 2) }
+    } catch {
+        $errMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+        return @{ ok = $false; error = $errMsg }
+    }
+}
+
 $ag = Find-Antigravity
 $patcher = Find-Patcher
 $browser = Find-Browser
@@ -369,6 +697,7 @@ function New-Lbl([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [string]$rol
     $l.Location = New-Object System.Drawing.Point($x, $y)
     $l.Size = New-Object System.Drawing.Size($w, $h)
     $l.Tag = $role
+    $l.BackColor = [System.Drawing.Color]::Transparent
     $fname = if ($bold) { 'Segoe UI Semibold' } else { 'Segoe UI' }
     $l.Font = New-Object System.Drawing.Font($fname, $size)
     $l.ForeColor = if ($role -eq 'muted') { $script:P.muted } else { $script:P.ink }
@@ -376,77 +705,139 @@ function New-Lbl([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [string]$rol
 }
 
 # шапка
-$lblTitle = New-Lbl 'Antigravity Proxy' 12 10 300 26 'ink' 12 $true
+$lblTitle = New-Lbl 'Antigravity Proxy' 12 10 200 26 'ink' 12 $true
 $form.Controls.Add($lblTitle)
-$lblSub = New-Lbl 'прокси, патч и запуск' 14 36 300 18 'muted' 8.5
+$lblSub = New-Lbl 'прокси, патч и запуск' 14 36 200 18 'muted' 8.5
 $form.Controls.Add($lblSub)
-
-$btnTheme = New-Object UiButton
-$btnTheme.Text = ''
-$btnTheme.Location = New-Object System.Drawing.Point(402, 12)
-$btnTheme.Size = New-Object System.Drawing.Size(88, 32)
-$btnTheme.Radius = 8
-$form.Controls.Add($btnTheme)
 
 $btnSettings = New-Object UiButton
 $btnSettings.Text = 'Настройки'
-$btnSettings.Location = New-Object System.Drawing.Point(288, 12)
-$btnSettings.Size = New-Object System.Drawing.Size(112, 32)
-$btnSettings.Radius = 8
+$btnSettings.Location = New-Object System.Drawing.Point(284, 12)
+$btnSettings.Size = New-Object System.Drawing.Size(108, 32)
+$btnSettings.Radius = 7
 $form.Controls.Add($btnSettings)
+$btnSettings.BringToFront()
+
+$btnTheme = New-Object UiButton
+$btnTheme.Text = ''
+$btnTheme.Location = New-Object System.Drawing.Point(398, 12)
+$btnTheme.Size = New-Object System.Drawing.Size(106, 32)
+$btnTheme.Radius = 7
+$form.Controls.Add($btnTheme)
+$btnTheme.BringToFront()
 
 # карточка статуса
 $card1 = New-Object System.Windows.Forms.Panel
-$card1.Location = New-Object System.Drawing.Point(16, 68)
-$card1.Size = New-Object System.Drawing.Size(488, 120)
+$card1.Location = New-Object System.Drawing.Point(16, 64)
+$card1.Size = New-Object System.Drawing.Size(488, 122)
 $card1.Tag = 'card'
 $form.Controls.Add($card1)
 
-$lblStatus = New-Lbl 'Запускаю прокси…' 16 16 380 26 'ink' 10.5 $true
+$lblStatus = New-Lbl 'Запускаю прокси…' 16 14 450 24 'ink' 10.5 $true
 $card1.Controls.Add($lblStatus)
-$lblDetail = New-Lbl '' 16 46 450 34 'muted' 8.5
+$lblDetail = New-Lbl '' 16 40 450 34 'muted' 8.5
 $card1.Controls.Add($lblDetail)
+
 $btnTest = New-Object UiButton
-$btnTest.Text = 'Проверить'
+$btnTest.Text = '↻ Статус'
 $btnTest.Location = New-Object System.Drawing.Point(16, 80)
-$btnTest.Size = New-Object System.Drawing.Size(120, 30)
-$btnTest.Radius = 8
+$btnTest.Size = New-Object System.Drawing.Size(96, 28)
+$btnTest.Radius = 6
 $card1.Controls.Add($btnTest)
+
+$btnSpeed = New-Object UiButton
+$btnSpeed.Text = '⚡ Скорость'
+$btnSpeed.Location = New-Object System.Drawing.Point(118, 80)
+$btnSpeed.Size = New-Object System.Drawing.Size(104, 28)
+$btnSpeed.Radius = 6
+$card1.Controls.Add($btnSpeed)
+
+$cbActiveProxy = New-Object UiComboBox
+$cbActiveProxy.Location = New-Object System.Drawing.Point(228, 80)
+$cbActiveProxy.Size = New-Object System.Drawing.Size(244, 28)
+$cbActiveProxy.DropDownWidth = 280
+$cbActiveProxy.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$cbActiveProxy.Tag = 'combobox'
+$card1.Controls.Add($cbActiveProxy)
+
+$script:updatingProxyCb = $false
+$cbActiveProxy.Add_SelectedIndexChanged({
+    if (-not $script:updatingProxyCb -and $cbActiveProxy.SelectedIndex -ge 0) {
+        if ($cbActiveProxy.SelectedIndex -ne [int]$script:Settings.activeProxyIndex) {
+            Switch-ActiveProxy $cbActiveProxy.SelectedIndex
+        }
+    }
+})
+
+$btnSpeed.Add_Click({
+    try {
+        if (-not (Test-Port)) {
+            $lblStatus.Text = 'Прокси не запущен'
+            $lblStatus.ForeColor = $script:P.err
+            return
+        }
+        $btnSpeed.Text = '⚡ Замер…'
+        $lblStatus.Text = 'Замер скорости…'
+        $lblStatus.ForeColor = $script:P.warn
+        $form.Update()
+        $res = Measure-ProxySpeed
+        if ($res.ok) {
+            $lblStatus.Text = 'Прокси работает'
+            $lblStatus.ForeColor = $script:P.ok
+            $active = Get-ActiveProxy
+            $pName = if ($active -and $active.name) { "$($active.name)" } else { "Прокси" }
+            $lblDetail.Text = "${pName}: $($res.mbps) Мбит/с · задержка $($res.ping) мс`r`nТест Cloudflare CDN (512 КБ)"
+        } else {
+            $lblStatus.Text = 'Ошибка замера скорости'
+            $lblStatus.ForeColor = $script:P.warn
+            $lblDetail.Text = 'Не удалось загрузить данные: ' + $res.error
+        }
+    } catch {
+        Write-Log ('BTN_SPEED: ' + $_.Exception.ToString())
+        $lblStatus.Text = 'Ошибка замера'
+        $lblStatus.ForeColor = $script:P.err
+    } finally {
+        $btnSpeed.Text = '⚡ Скорость'
+    }
+})
 
 # действия
 $btnStart = New-Object UiButton
-$btnStart.Text = 'Запустить Antigravity'
-$btnStart.Location = New-Object System.Drawing.Point(16, 200)
+$btnStart.Text = '▶ Запустить Antigravity'
+$btnStart.Location = New-Object System.Drawing.Point(16, 198)
 $btnStart.Size = New-Object System.Drawing.Size(488, 44)
-$btnStart.Radius = 10
-$btnStart.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 9.5)
+$btnStart.Radius = 8
+$btnStart.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 10)
 $form.Controls.Add($btnStart)
 
 $btnBrowser = New-Object UiButton
-$btnBrowser.Text = 'Браузер: Gemini'
-$btnBrowser.Location = New-Object System.Drawing.Point(16, 254)
-$btnBrowser.Size = New-Object System.Drawing.Size(200, 38)
-$btnBrowser.Radius = 9
+$btnBrowser.Text = '🌐 AI Studio (Web)'
+$btnBrowser.Location = New-Object System.Drawing.Point(16, 250)
+$btnBrowser.Size = New-Object System.Drawing.Size(180, 36)
+$btnBrowser.Radius = 7
+$btnBrowser.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.Controls.Add($btnBrowser)
 
 $btnOcGui = New-Object UiButton
-$btnOcGui.Text = 'OpenCode GUI'
-$btnOcGui.Location = New-Object System.Drawing.Point(224, 254)
-$btnOcGui.Size = New-Object System.Drawing.Size(130, 38)
-$btnOcGui.Radius = 9
+$btnOcGui.Text = '⚡ OpenCode GUI'
+$btnOcGui.Location = New-Object System.Drawing.Point(204, 250)
+$btnOcGui.Size = New-Object System.Drawing.Size(142, 36)
+$btnOcGui.Radius = 7
+$btnOcGui.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.Controls.Add($btnOcGui)
 
 $btnOcCli = New-Object UiButton
-$btnOcCli.Text = 'OpenCode CLI'
-$btnOcCli.Location = New-Object System.Drawing.Point(362, 254)
-$btnOcCli.Size = New-Object System.Drawing.Size(142, 38)
-$btnOcCli.Radius = 9
+$btnOcCli.Text = '>_ OpenCode CLI'
+$btnOcCli.Location = New-Object System.Drawing.Point(354, 250)
+$btnOcCli.Size = New-Object System.Drawing.Size(150, 36)
+$btnOcCli.Radius = 7
+$btnOcCli.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.Controls.Add($btnOcCli)
 
 # карточка состояния
 $card2 = New-Object System.Windows.Forms.Panel
-$card2.Location = New-Object System.Drawing.Point(16, 306)
-$card2.Size = New-Object System.Drawing.Size(488, 150)
+$card2.Location = New-Object System.Drawing.Point(16, 298)
+$card2.Size = New-Object System.Drawing.Size(488, 156)
 $card2.Tag = 'card'
 $form.Controls.Add($card2)
 
@@ -455,9 +846,9 @@ $card2.Controls.Add($lblPatch)
 
 $btnPatch = New-Object UiButton
 $btnPatch.Text = 'Патч'
-$btnPatch.Location = New-Object System.Drawing.Point(376, 10)
-$btnPatch.Size = New-Object System.Drawing.Size(96, 28)
-$btnPatch.Radius = 8
+$btnPatch.Location = New-Object System.Drawing.Point(380, 10)
+$btnPatch.Size = New-Object System.Drawing.Size(92, 28)
+$btnPatch.Radius = 6
 $card2.Controls.Add($btnPatch)
 
 $lblApp = New-Lbl '' 16 44 450 44 'muted' 8
@@ -465,9 +856,9 @@ $card2.Controls.Add($lblApp)
 
 $btnSysProxy = New-Object UiButton
 $btnSysProxy.Text = 'Системный прокси: выкл'
-$btnSysProxy.Location = New-Object System.Drawing.Point(16, 100)
-$btnSysProxy.Size = New-Object System.Drawing.Size(250, 30)
-$btnSysProxy.Radius = 8
+$btnSysProxy.Location = New-Object System.Drawing.Point(16, 106)
+$btnSysProxy.Size = New-Object System.Drawing.Size(250, 32)
+$btnSysProxy.Radius = 7
 $card2.Controls.Add($btnSysProxy)
 
 $lblFoot = New-Lbl 'Прокси-настройки, тема и пути — в «Настройках».' 18 474 480 18 'muted' 8.5
@@ -475,14 +866,20 @@ $form.Controls.Add($lblFoot)
 
 function Update-SysProxyButton {
     $on = Test-SystemProxy
-    $btnSysProxy.Text = if ($on) { 'Системный прокси: вкл' } else { 'Системный прокси: выкл' }
+    $btnSysProxy.Text = if ($on) { '✓ Системный прокси: вкл' } else { '✕ Системный прокси: выкл' }
     if ($on) {
         $btnSysProxy.Fill = $script:P.accent
         $btnSysProxy.Hover = $script:P.accentHover
+        $btnSysProxy.Pressed = $script:P.accentPressed
+        $btnSysProxy.BorderWidth = 0
         $btnSysProxy.ForeColor = [System.Drawing.Color]::White
     } else {
         $btnSysProxy.Fill = $script:P.secondaryFill
-        $btnSysProxy.Hover = $script:P.border
+        $btnSysProxy.Hover = $script:P.secondaryHover
+        $btnSysProxy.Pressed = $script:P.secondaryPressed
+        $btnSysProxy.BorderColor = $script:P.secondaryBorder
+        $btnSysProxy.HoverBorderColor = $script:P.secondaryHoverBorder
+        $btnSysProxy.BorderWidth = 1
         $btnSysProxy.ForeColor = $script:P.secondaryText
     }
     $btnSysProxy.Invalidate()
@@ -493,6 +890,7 @@ function Apply-Theme {
     $form.BackColor = $p.bg
     foreach ($c in @($lblTitle, $lblSub, $lblStatus, $lblDetail, $lblPatch, $lblApp, $lblFoot)) {
         if (-not $c) { continue }
+        $c.BackColor = [System.Drawing.Color]::Transparent
         switch ($c.Tag) {
             'card' { }
             'muted' { $c.ForeColor = $p.muted }
@@ -503,38 +901,61 @@ function Apply-Theme {
     foreach ($c in @($card1, $card2)) {
         $c.BackColor = $p.card
     }
-    foreach ($b in @($btnTest, $btnBrowser, $btnOcGui, $btnOcCli, $btnPatch, $btnTheme, $btnSettings)) {
+    foreach ($b in @($btnTest, $btnSpeed, $btnBrowser, $btnOcGui, $btnOcCli, $btnPatch, $btnTheme, $btnSettings)) {
+        if (-not $b) { continue }
         $b.Fill = $p.secondaryFill
-        $b.Hover = $p.border
+        $b.Hover = $p.secondaryHover
+        $b.Pressed = $p.secondaryPressed
+        $b.BorderColor = $p.secondaryBorder
+        $b.HoverBorderColor = $p.secondaryHoverBorder
+        $b.BorderWidth = 1
         $b.ForeColor = $p.secondaryText
     }
     $btnStart.Fill = $p.accent
     $btnStart.Hover = $p.accentHover
+    $btnStart.Pressed = $p.accentPressed
+    $btnStart.BorderWidth = 0
     $btnStart.ForeColor = [System.Drawing.Color]::White
-    $btnTheme.Text = if ($script:Settings.theme -eq 'dark') { 'Светлая' } else { 'Тёмная' }
+    $btnTheme.Text = if ($script:Settings.theme -eq 'dark') { '☀ Светлая' } else { '🌙 Тёмная' }
     $btnTheme.ForeColor = $p.ink
+    if ($cbActiveProxy) {
+        $cbActiveProxy.BackColor = $p.secondaryFill
+        $cbActiveProxy.ForeColor = $p.ink
+        $cbActiveProxy.ItemBackColor = $p.secondaryFill
+        $cbActiveProxy.ItemForeColor = $p.ink
+        $cbActiveProxy.SelectedItemBackColor = $p.accent
+        $cbActiveProxy.SelectedItemForeColor = [System.Drawing.Color]::White
+        $cbActiveProxy.Invalidate()
+    }
     Update-SysProxyButton
     $form.Invalidate($true)
 }
 
 function Update-Status {
     if (Test-Port) {
-        $info = Get-ProxyInfo
-        $where = if ($info) { "$($info.host):$($info.port)" } else { '—' }
+        $active = Get-ActiveProxy
+        $proxyName = if ($active -and $active.name) { "$($active.name) · " } else { '' }
+        $where = if ($active -and $active.host) { "$($active.host):$($active.port)" } else {
+            $info = Get-ProxyInfo
+            if ($info) { "$($info.host):$($info.port)" } else { '—' }
+        }
         try {
-            $j = Invoke-RestMethod -Uri 'https://ipinfo.io/json' -Proxy 'http://127.0.0.1:10809' -TimeoutSec 30
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $j = Invoke-RestMethod -Uri 'https://ipinfo.io/json' -Proxy 'http://127.0.0.1:10809' -TimeoutSec 15
+            $sw.Stop()
+            $ping = [Math]::Round($sw.Elapsed.TotalMilliseconds)
             $lblStatus.Text = 'Прокси работает'
             $lblStatus.ForeColor = $script:P.ok
-            $lblDetail.Text = "Выход: $($j.ip) · $($j.country), $($j.city)`r`nПрокси: $where"
+            $lblDetail.Text = "Выход: $($j.ip) · $($j.country), $($j.city) · пинг $ping мс`r`nПрокси: $proxyName$where"
         } catch {
             $lblStatus.Text = 'Прокси работает, проверка не удалась'
             $lblStatus.ForeColor = $script:P.warn
-            $lblDetail.Text = "Прокси: $where"
+            $lblDetail.Text = "Прокси: $proxyName$where"
         }
     } else {
         $lblStatus.Text = 'Прокси не запущен'
         $lblStatus.ForeColor = $script:P.err
-        $lblDetail.Text = 'Откройте «Настройки», проверьте адрес прокси и нажмите «Применить».'
+        $lblDetail.Text = 'Откройте «Настройки», проверьте адрес прокси и нажмите «Сохранить».'
     }
 }
 
@@ -557,7 +978,7 @@ function Show-Settings {
     $p = $script:P
     $sf = New-Object System.Windows.Forms.Form
     $sf.Text = 'Настройки'
-    $sf.ClientSize = New-Object System.Drawing.Size(430, 430)
+    $sf.ClientSize = New-Object System.Drawing.Size(460, 500)
     $sf.StartPosition = 'CenterParent'
     $sf.FormBorderStyle = 'FixedDialog'
     $sf.MaximizeBox = $false
@@ -567,81 +988,326 @@ function Show-Settings {
     $sf.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
     if ($form.Icon) { $sf.Icon = $form.Icon }
 
-    $info = Get-ProxyInfo
-    $h = if ($info) { $info.host } else { '' }
-    $pt = if ($info) { $info.port } else { '' }
-    $u = if ($info) { $info.user } else { '' }
-    $pw = if ($info) { $info.pass } else { '' }
+    $localProxies = [System.Collections.ArrayList]@()
+    foreach ($px in @($script:Settings.proxies)) {
+        $localProxies.Add([PSCustomObject]@{
+            name = [string]$px.name
+            host = [string]$px.host
+            port = [string]$px.port
+            user = [string]$px.user
+            pass = [string]$px.pass
+        }) | Out-Null
+    }
+    if ($localProxies.Count -eq 0) {
+        $localProxies.Add([PSCustomObject]@{
+            name = 'Основной'
+            host = ''
+            port = '8000'
+            user = ''
+            pass = ''
+        }) | Out-Null
+    }
+    $script:localActiveIdx = [int]$script:Settings.activeProxyIndex
+    if ($script:localActiveIdx -lt 0 -or $script:localActiveIdx -ge $localProxies.Count) { $script:localActiveIdx = 0 }
+    $script:currentIdx = $script:localActiveIdx
+    $script:updatingSettingsCb = $false
 
-    $sf.Controls.Add((New-Lbl 'Прокси' 18 14 200 22 'ink' 10.5 $true))
-    $sf.Controls.Add((New-Lbl 'Сервер' 18 46 120 16 'muted' 8.5))
-    $tbH = New-Txt 18 64 260; $tbH.Text = $h; $tbH.BackColor = $p.card; $tbH.ForeColor = $p.ink; $sf.Controls.Add($tbH)
-    $sf.Controls.Add((New-Lbl 'Порт' 292 46 60 16 'muted' 8.5))
-    $tbPt = New-Txt 292 64 118; $tbPt.Text = $pt; $tbPt.BackColor = $p.card; $tbPt.ForeColor = $p.ink; $sf.Controls.Add($tbPt)
-    $sf.Controls.Add((New-Lbl 'Логин' 18 98 120 16 'muted' 8.5))
-    $tbU = New-Txt 18 116 260; $tbU.Text = $u; $tbU.BackColor = $p.card; $tbU.ForeColor = $p.ink; $sf.Controls.Add($tbU)
-    $sf.Controls.Add((New-Lbl 'Пароль' 292 98 60 16 'muted' 8.5))
-    $tbPw = New-Txt 292 116 118; $tbPw.Text = $pw; $tbPw.UseSystemPasswordChar = $true; $tbPw.BackColor = $p.card; $tbPw.ForeColor = $p.ink; $sf.Controls.Add($tbPw)
+    $sf.Controls.Add((New-Lbl 'Настройки прокси' 18 14 200 22 'ink' 10.5 $true))
 
-    $btnApplyProxy = New-Object UiButton
-    $btnApplyProxy.Text = 'Применить прокси'
-    $btnApplyProxy.Location = New-Object System.Drawing.Point(18, 154)
-    $btnApplyProxy.Size = New-Object System.Drawing.Size(180, 34)
-    $btnApplyProxy.Radius = 8
-    $btnApplyProxy.Fill = $p.accent; $btnApplyProxy.Hover = $p.accentHover
-    $btnApplyProxy.ForeColor = [System.Drawing.Color]::White
-    $sf.Controls.Add($btnApplyProxy)
+    $cbList = New-Object UiComboBox
+    $cbList.Location = New-Object System.Drawing.Point(18, 42)
+    $cbList.Size = New-Object System.Drawing.Size(236, 28)
+    $cbList.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $cbList.BackColor = $p.secondaryFill
+    $cbList.ForeColor = $p.ink
+    $cbList.ItemBackColor = $p.secondaryFill
+    $cbList.ItemForeColor = $p.ink
+    $cbList.SelectedItemBackColor = $p.accent
+    $cbList.SelectedItemForeColor = [System.Drawing.Color]::White
+    $sf.Controls.Add($cbList)
 
-    $sf.Controls.Add((New-Lbl 'Тема' 18 206 200 22 'ink' 10.5 $true))
-    $rbLight = New-Object System.Windows.Forms.RadioButton
-    $rbLight.Text = 'Светлая'; $rbLight.Location = New-Object System.Drawing.Point(20, 234); $rbLight.Size = New-Object System.Drawing.Size(110, 22)
-    $rbLight.ForeColor = $p.ink
+    $btnAdd = New-Object UiButton
+    $btnAdd.Text = '+ Добавить'
+    $btnAdd.Location = New-Object System.Drawing.Point(262, 41)
+    $btnAdd.Size = New-Object System.Drawing.Size(96, 28)
+    $btnAdd.Radius = 6
+    $btnAdd.Fill = $p.secondaryFill; $btnAdd.Hover = $p.secondaryHover; $btnAdd.Pressed = $p.secondaryPressed
+    $btnAdd.BorderColor = $p.secondaryBorder; $btnAdd.HoverBorderColor = $p.accent; $btnAdd.BorderWidth = 1
+    $btnAdd.ForeColor = $p.secondaryText
+    $sf.Controls.Add($btnAdd)
+
+    $btnDel = New-Object UiButton
+    $btnDel.Text = 'Удалить'
+    $btnDel.Location = New-Object System.Drawing.Point(366, 41)
+    $btnDel.Size = New-Object System.Drawing.Size(76, 28)
+    $btnDel.Radius = 6
+    $btnDel.Fill = $p.secondaryFill; $btnDel.Hover = $p.secondaryHover; $btnDel.Pressed = $p.secondaryPressed
+    $btnDel.BorderColor = $p.secondaryBorder; $btnDel.HoverBorderColor = $p.err; $btnDel.BorderWidth = 1
+    $btnDel.ForeColor = $p.secondaryText
+    $sf.Controls.Add($btnDel)
+
+    $sf.Controls.Add((New-Lbl 'Имя профиля:' 18 76 200 16 'muted' 8.5))
+    $tbName = New-Txt 18 94 424; $tbName.BackColor = $p.card; $tbName.ForeColor = $p.ink; $sf.Controls.Add($tbName)
+
+    $sf.Controls.Add((New-Lbl 'Сервер / Хост:' 18 124 120 16 'muted' 8.5))
+    $tbH = New-Txt 18 142 260; $tbH.BackColor = $p.card; $tbH.ForeColor = $p.ink; $sf.Controls.Add($tbH)
+
+    $sf.Controls.Add((New-Lbl 'Порт:' 290 124 60 16 'muted' 8.5))
+    $tbPt = New-Txt 290 142 152; $tbPt.BackColor = $p.card; $tbPt.ForeColor = $p.ink; $sf.Controls.Add($tbPt)
+
+    $sf.Controls.Add((New-Lbl 'Логин:' 18 172 120 16 'muted' 8.5))
+    $tbU = New-Txt 18 190 260; $tbU.BackColor = $p.card; $tbU.ForeColor = $p.ink; $sf.Controls.Add($tbU)
+
+    $sf.Controls.Add((New-Lbl 'Пароль:' 290 172 60 16 'muted' 8.5))
+    $tbPw = New-Txt 290 190 152; $tbPw.UseSystemPasswordChar = $true; $tbPw.BackColor = $p.card; $tbPw.ForeColor = $p.ink; $sf.Controls.Add($tbPw)
+
+    $btnActive = New-Object UiButton
+    $btnActive.Text = 'Сделать активным'
+    $btnActive.Location = New-Object System.Drawing.Point(18, 226)
+    $btnActive.Size = New-Object System.Drawing.Size(200, 32)
+    $btnActive.Radius = 6
+    $sf.Controls.Add($btnActive)
+
+    $btnTestSettings = New-Object UiButton
+    $btnTestSettings.Text = '↻ Проверить этот прокси'
+    $btnTestSettings.Location = New-Object System.Drawing.Point(226, 226)
+    $btnTestSettings.Size = New-Object System.Drawing.Size(216, 32)
+    $btnTestSettings.Radius = 6
+    $btnTestSettings.Fill = $p.secondaryFill; $btnTestSettings.Hover = $p.secondaryHover; $btnTestSettings.Pressed = $p.secondaryPressed
+    $btnTestSettings.BorderColor = $p.secondaryBorder; $btnTestSettings.HoverBorderColor = $p.secondaryHoverBorder; $btnTestSettings.BorderWidth = 1
+    $btnTestSettings.ForeColor = $p.secondaryText
+    $sf.Controls.Add($btnTestSettings)
+
+    $sf.Controls.Add((New-Lbl 'Тема оформления' 18 270 200 20 'ink' 10 $true))
     $rbDark = New-Object System.Windows.Forms.RadioButton
-    $rbDark.Text = 'Тёмная'; $rbDark.Location = New-Object System.Drawing.Point(140, 234); $rbDark.Size = New-Object System.Drawing.Size(110, 22)
+    $rbDark.Text = 'Тёмная'; $rbDark.Location = New-Object System.Drawing.Point(20, 296); $rbDark.Size = New-Object System.Drawing.Size(100, 22)
     $rbDark.ForeColor = $p.ink
+    $rbLight = New-Object System.Windows.Forms.RadioButton
+    $rbLight.Text = 'Светлая'; $rbLight.Location = New-Object System.Drawing.Point(130, 296); $rbLight.Size = New-Object System.Drawing.Size(100, 22)
+    $rbLight.ForeColor = $p.ink
     if ($script:Settings.theme -eq 'dark') { $rbDark.Checked = $true } else { $rbLight.Checked = $true }
-    $sf.Controls.Add($rbLight); $sf.Controls.Add($rbDark)
+    $sf.Controls.Add($rbDark); $sf.Controls.Add($rbLight)
 
-    $lblNote = New-Lbl 'Тема применится сразу после сохранения.' 18 268 390 34 'muted' 8.5
+    $lblNote = New-Lbl 'Выберите нужный прокси, отредактируйте параметры и нажмите «Сохранить».' 18 330 424 44 'muted' 8.5
     $sf.Controls.Add($lblNote)
 
     $btnSave = New-Object UiButton
     $btnSave.Text = 'Сохранить'
-    $btnSave.Location = New-Object System.Drawing.Point(18, 372)
-    $btnSave.Size = New-Object System.Drawing.Size(140, 36)
-    $btnSave.Radius = 9
-    $btnSave.Fill = $p.accent; $btnSave.Hover = $p.accentHover
+    $btnSave.Location = New-Object System.Drawing.Point(18, 444)
+    $btnSave.Size = New-Object System.Drawing.Size(130, 38)
+    $btnSave.Radius = 7
+    $btnSave.Fill = $p.accent; $btnSave.Hover = $p.accentHover; $btnSave.Pressed = $p.accentPressed
+    $btnSave.BorderWidth = 0
     $btnSave.ForeColor = [System.Drawing.Color]::White
     $sf.Controls.Add($btnSave)
 
     $btnCancel = New-Object UiButton
     $btnCancel.Text = 'Отмена'
-    $btnCancel.Location = New-Object System.Drawing.Point(170, 372)
-    $btnCancel.Size = New-Object System.Drawing.Size(120, 36)
-    $btnCancel.Radius = 9
-    $btnCancel.Fill = $p.secondaryFill; $btnCancel.Hover = $p.border
+    $btnCancel.Location = New-Object System.Drawing.Point(158, 444)
+    $btnCancel.Size = New-Object System.Drawing.Size(110, 38)
+    $btnCancel.Radius = 7
+    $btnCancel.Fill = $p.secondaryFill; $btnCancel.Hover = $p.secondaryHover; $btnCancel.Pressed = $p.secondaryPressed
+    $btnCancel.BorderColor = $p.secondaryBorder; $btnCancel.HoverBorderColor = $p.secondaryHoverBorder; $btnCancel.BorderWidth = 1
     $btnCancel.ForeColor = $p.secondaryText
     $sf.Controls.Add($btnCancel)
 
-    $btnApplyProxy.Add_Click({
+    $saveCurrentFields = {
+        if ($script:currentIdx -ge 0 -and $script:currentIdx -lt $localProxies.Count) {
+            $cur = $localProxies[$script:currentIdx]
+            $cur.name = $tbName.Text.Trim()
+            $cur.host = $tbH.Text.Trim()
+            $cur.port = $tbPt.Text.Trim()
+            $cur.user = $tbU.Text.Trim()
+            $cur.pass = $tbPw.Text
+        }
+    }
+
+    $updateActiveButton = {
+        param([int]$idx)
+        if ($idx -eq $script:localActiveIdx) {
+            $btnActive.Text = '✓ Текущий активный'
+            $btnActive.Fill = $p.accent
+            $btnActive.Hover = $p.accentHover
+            $btnActive.Pressed = $p.accentPressed
+            $btnActive.BorderWidth = 0
+            $btnActive.ForeColor = [System.Drawing.Color]::White
+        } else {
+            $btnActive.Text = 'Сделать активным'
+            $btnActive.Fill = $p.secondaryFill
+            $btnActive.Hover = $p.secondaryHover
+            $btnActive.Pressed = $p.secondaryPressed
+            $btnActive.BorderColor = $p.secondaryBorder
+            $btnActive.HoverBorderColor = $p.secondaryHoverBorder
+            $btnActive.BorderWidth = 1
+            $btnActive.ForeColor = $p.secondaryText
+        }
+        $btnActive.Invalidate()
+    }
+
+    $loadCurrentFields = {
+        param([int]$idx)
+        if ($idx -ge 0 -and $idx -lt $localProxies.Count) {
+            $cur = $localProxies[$idx]
+            $tbName.Text = [string]$cur.name
+            $tbH.Text = [string]$cur.host
+            $tbPt.Text = [string]$cur.port
+            $tbU.Text = [string]$cur.user
+            $tbPw.Text = [string]$cur.pass
+            & $updateActiveButton $idx
+        }
+    }
+
+    $refreshSettingsList = {
+        param([int]$selIdx)
+        $script:updatingSettingsCb = $true
         try {
-            Write-ProxyConfig $tbH.Text.Trim() $tbPt.Text.Trim() $tbU.Text.Trim() $tbPw.Text
-            $ok = Restart-Xray
-            if ($ok) { Update-Status } else { $lblNote.Text = 'Xray не запустился — проверьте данные.' }
-        } catch { $lblNote.Text = 'Ошибка: ' + $_.Exception.Message }
+            $cbList.Items.Clear()
+            for ($i = 0; $i -lt $localProxies.Count; $i++) {
+                $item = $localProxies[$i]
+                $star = if ($i -eq $script:localActiveIdx) { '★ ' } else { '' }
+                $n = if ($item.name) { $item.name } else { "Прокси $($i + 1)" }
+                $h = if ($item.host) { "$($item.host):$($item.port)" } else { "пусто" }
+                $cbList.Items.Add("$star$n ($h)") | Out-Null
+            }
+            if ($selIdx -ge 0 -and $selIdx -lt $localProxies.Count) {
+                $cbList.SelectedIndex = $selIdx
+            } elseif ($localProxies.Count -gt 0) {
+                $cbList.SelectedIndex = 0
+            }
+        } finally {
+            $script:updatingSettingsCb = $false
+        }
+    }
+
+    & $refreshSettingsList $script:currentIdx
+    & $loadCurrentFields $script:currentIdx
+
+    $cbList.Add_SelectedIndexChanged({
+        if (-not $script:updatingSettingsCb -and $cbList.SelectedIndex -ge 0) {
+            & $saveCurrentFields
+            $script:currentIdx = $cbList.SelectedIndex
+            & $loadCurrentFields $script:currentIdx
+        }
+    })
+
+    $btnAdd.Add_Click({
+        & $saveCurrentFields
+        $newNum = $localProxies.Count + 1
+        $localProxies.Add([PSCustomObject]@{
+            name = "Прокси $newNum"
+            host = ""
+            port = "8000"
+            user = ""
+            pass = ""
+        }) | Out-Null
+        $script:currentIdx = $localProxies.Count - 1
+        & $refreshSettingsList $script:currentIdx
+        & $loadCurrentFields $script:currentIdx
+        $tbName.Focus()
+        $tbName.SelectAll()
+        $lblNote.Text = 'Добавлен новый профиль прокси. Заполните данные и нажмите «Сохранить».'
+        $lblNote.ForeColor = $p.muted
+    })
+
+    $btnDel.Add_Click({
+        if ($localProxies.Count -le 1) {
+            [System.Windows.Forms.MessageBox]::Show('Нельзя удалить единственный прокси.', 'Antigravity Proxy', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            return
+        }
+        $toRemove = $script:currentIdx
+        $localProxies.RemoveAt($toRemove)
+        if ($script:localActiveIdx -eq $toRemove) {
+            $script:localActiveIdx = 0
+        } elseif ($script:localActiveIdx -gt $toRemove) {
+            $script:localActiveIdx--
+        }
+        if ($script:currentIdx -ge $localProxies.Count) {
+            $script:currentIdx = $localProxies.Count - 1
+        }
+        & $refreshSettingsList $script:currentIdx
+        & $loadCurrentFields $script:currentIdx
+        $lblNote.Text = 'Профиль удален.'
+        $lblNote.ForeColor = $p.muted
+    })
+
+    $btnActive.Add_Click({
+        & $saveCurrentFields
+        $script:localActiveIdx = $script:currentIdx
+        & $refreshSettingsList $script:currentIdx
+        & $updateActiveButton $script:currentIdx
+        $nameCur = $localProxies[$script:currentIdx].name
+        $lblNote.Text = "Прокси «$nameCur» выбран активным (нажмите «Сохранить» для применения)."
+        $lblNote.ForeColor = $p.accent
+    })
+
+    $btnTestSettings.Add_Click({
+        & $saveCurrentFields
+        $cur = $localProxies[$script:currentIdx]
+        if (-not $cur.host) {
+            $lblNote.Text = 'Укажите адрес сервера перед проверкой.'
+            $lblNote.ForeColor = $p.err
+            return
+        }
+        $lblNote.Text = "Проверяю $($cur.name) ($($cur.host):$($cur.port))..."
+        $lblNote.ForeColor = $p.warn
+        $sf.Update()
+        try {
+            $info = Test-DirectProxyInfo $cur.host $cur.port $cur.user $cur.pass
+            if ($info.ok) {
+                $lblNote.Text = "✓ $($info.ip) ($($info.country), $($info.city)) · пинг $($info.ms) мс · замер скорости..."
+                $lblNote.ForeColor = $p.ok
+                $sf.Update()
+
+                $sp = Measure-ProxySpeed $cur.host $cur.port $cur.user $cur.pass
+                $spStr = if ($sp.ok) { " · $($sp.mbps) Мбит/с" } else { "" }
+                $lblNote.Text = "✓ $($info.ip) ($($info.country), $($info.city)) · пинг $($info.ms) мс$spStr"
+                $lblNote.ForeColor = $p.ok
+            } else {
+                $lblNote.Text = "Ошибка подключения ($($info.ms) мс): " + $info.error
+                $lblNote.ForeColor = $p.err
+            }
+        } catch {
+            $lblNote.Text = 'Ошибка проверки: ' + $_.Exception.Message
+            $lblNote.ForeColor = $p.err
+        }
     })
 
     $btnSave.Add_Click({
+        & $saveCurrentFields
+        $hasValid = $false
+        foreach ($px in $localProxies) {
+            if ($px.host -and $px.host.Trim().Length -gt 0) { $hasValid = $true; break }
+        }
+        if (-not $hasValid) {
+            $lblNote.Text = 'Укажите хост/сервер хотя бы для одного прокси.'
+            $lblNote.ForeColor = $p.err
+            return
+        }
+        $script:Settings.proxies = @($localProxies)
+        $script:Settings.activeProxyIndex = $script:localActiveIdx
         $script:Settings.theme = if ($rbDark.Checked) { 'dark' } else { 'light' }
         Save-Settings
         $sf.Close()
+
         $script:P = Get-Palette $script:Settings.theme
         Apply-Theme
+        Refresh-ProxyComboBox
+
+        $active = Get-ActiveProxy
+        if ($active -and $active.host) {
+            try {
+                Write-ProxyConfig $active.host $active.port $active.user $active.pass
+                Restart-Xray | Out-Null
+            } catch { }
+        }
         Update-Status
         Update-Patch
     })
 
-    $btnCancel.Add_Click({ $sf.Close() })
+    $btnCancel.Add_Click({
+        $sf.Close()
+    })
+
     Scale-Form $sf
     [void]$sf.ShowDialog($form)
 }
@@ -789,10 +1455,17 @@ $btnSysProxy.Add_Click({
 })
 
 # ---------- старт ----------
+Ensure-ProxySettings
 Scale-Form $form
 Apply-Theme
+Refresh-ProxyComboBox
 $form.Add_Shown({
     $form.Activate(); $form.TopMost = $true; $form.TopMost = $false
+    $active = Get-ActiveProxy
+    $cur = Get-ProxyInfo
+    if ($active -and $active.host -and (-not $cur -or $cur.host -ne $active.host -or $cur.port -ne $active.port)) {
+        try { Write-ProxyConfig $active.host $active.port $active.user $active.pass } catch { }
+    }
     if (-not (Test-Port)) { Restart-Xray | Out-Null }
     Update-Status
     Update-Patch
