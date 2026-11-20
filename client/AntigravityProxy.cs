@@ -8,6 +8,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -800,6 +801,60 @@ namespace AntigravityProxyApp
             return "";
         }
 
+        public static string FindTelegramApp()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Classes\tg\shell\open\command"))
+                {
+                    if (key != null)
+                    {
+                        string cmd = key.GetValue("") as string;
+                        if (!string.IsNullOrEmpty(cmd))
+                        {
+                            var m = Regex.Match(cmd, @"\""([^\""]+Telegram\.exe)\""");
+                            if (m.Success && File.Exists(m.Groups[1].Value))
+                                return m.Groups[1].Value;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string[] candidates = {
+                Path.Combine(appData, @"Telegram Desktop\Telegram.exe"),
+                Path.Combine(localData, @"Telegram Desktop\Telegram.exe"),
+                @"C:\Program Files\Telegram Desktop\Telegram.exe",
+                @"C:\Program Files (x86)\Telegram Desktop\Telegram.exe"
+            };
+
+            foreach (var p in candidates)
+            {
+                if (File.Exists(p)) return p;
+            }
+
+            try
+            {
+                string desktopLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Telegram.lnk");
+                if (File.Exists(desktopLnk))
+                {
+                    Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                    if (shellType != null)
+                    {
+                        dynamic shell = Activator.CreateInstance(shellType);
+                        dynamic shortcut = shell.CreateShortcut(desktopLnk);
+                        string target = shortcut.TargetPath;
+                        if (File.Exists(target)) return target;
+                    }
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
         public static string FindPatcher()
         {
             string u = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -1141,14 +1196,14 @@ namespace AntigravityProxyApp
         private Label lblTitle, lblSub, lblStatus, lblDetail, lblPatch, lblApp, lblFoot;
         private UiButton btnSettings, btnTheme, btnStatus, btnSpeed;
         private UiComboBox cbActiveProxy;
-        private UiButton btnStart, btnBrowser, btnOcGui, btnOcCli, btnPatch, btnSysProxy;
+        private UiButton btnStart, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnSysProxy;
         private Panel card1, card2;
         private NotifyIcon notifyIcon;
 
         public MainForm()
         {
             Text = "Antigravity Proxy";
-            ClientSize = new Size(520, 512);
+            ClientSize = new Size(520, 526);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -1230,29 +1285,31 @@ namespace AntigravityProxyApp
             card1.Controls.Add(cbActiveProxy);
 
             // Action buttons
-            btnStart = new UiButton { Text = "▶ Запустить Antigravity", Location = new Point(16, 198), Size = new Size(488, 44), Radius = 8, Font = new Font("Segoe UI Semibold", 10f) };
-            btnBrowser = new UiButton { Text = "🌐 AI Studio (Web)", Location = new Point(16, 250), Size = new Size(180, 36), Radius = 7 };
-            btnOcGui = new UiButton { Text = "⚡ OpenCode GUI", Location = new Point(204, 250), Size = new Size(142, 36), Radius = 7 };
-            btnOcCli = new UiButton { Text = ">_ OpenCode CLI", Location = new Point(354, 250), Size = new Size(150, 36), Radius = 7 };
+            btnStart = new UiButton { Text = "▶ Запустить Antigravity", Location = new Point(16, 196), Size = new Size(488, 42), Radius = 8, Font = new Font("Segoe UI Semibold", 10.5f) };
+            btnBrowser = new UiButton { Text = "🌐 AI Studio (Web)", Location = new Point(16, 246), Size = new Size(240, 36), Radius = 7 };
+            btnTelegram = new UiButton { Text = "✈ Telegram (Прокси)", Location = new Point(264, 246), Size = new Size(240, 36), Radius = 7 };
+            btnOcGui = new UiButton { Text = "⚡ OpenCode GUI", Location = new Point(16, 288), Size = new Size(240, 34), Radius = 7 };
+            btnOcCli = new UiButton { Text = ">_ OpenCode CLI", Location = new Point(264, 288), Size = new Size(240, 34), Radius = 7 };
             Controls.Add(btnStart);
             Controls.Add(btnBrowser);
+            Controls.Add(btnTelegram);
             Controls.Add(btnOcGui);
             Controls.Add(btnOcCli);
 
             // Card 2
-            card2 = new Panel { Location = new Point(16, 298), Size = new Size(488, 156) };
+            card2 = new Panel { Location = new Point(16, 332), Size = new Size(488, 150) };
             Controls.Add(card2);
 
             lblPatch = new Label { Text = "Патч: проверка…", Location = new Point(16, 14), Size = new Size(300, 20), Font = new Font("Segoe UI", 9f) };
             btnPatch = new UiButton { Text = "Патч", Location = new Point(380, 10), Size = new Size(92, 28), Radius = 6 };
-            lblApp = new Label { Text = "", Location = new Point(16, 44), Size = new Size(450, 44), Font = new Font("Segoe UI", 8f) };
-            btnSysProxy = new UiButton { Text = "Системный прокси: выкл", Location = new Point(16, 106), Size = new Size(250, 32), Radius = 7 };
+            lblApp = new Label { Text = "", Location = new Point(16, 42), Size = new Size(450, 42), Font = new Font("Segoe UI", 8f) };
+            btnSysProxy = new UiButton { Text = "Системный прокси: выкл", Location = new Point(16, 98), Size = new Size(260, 32), Radius = 7 };
             card2.Controls.Add(lblPatch);
             card2.Controls.Add(btnPatch);
             card2.Controls.Add(lblApp);
             card2.Controls.Add(btnSysProxy);
 
-            lblFoot = new Label { Text = "Прокси-настройки, тема и пути — в «Настройках».", Location = new Point(18, 474), Size = new Size(480, 18), Font = new Font("Segoe UI", 8.5f) };
+            lblFoot = new Label { Text = "Прокси-настройки, тема и пути — в «Настройках».", Location = new Point(18, 494), Size = new Size(480, 18), Font = new Font("Segoe UI", 8.5f) };
             Controls.Add(lblFoot);
 
             // Handlers
@@ -1395,6 +1452,44 @@ namespace AntigravityProxyApp
                 }
             };
 
+            btnTelegram.Click += (s, e) =>
+            {
+                try
+                {
+                    if (!AppCore.TestPort(10809) || !AppCore.TestPort(10808))
+                    {
+                        AppCore.RestartXray();
+                    }
+                    SetProxyEnv();
+
+                    string tg = AppCore.FindTelegramApp();
+                    string proxyUrl = "tg://socks?server=127.0.0.1&port=10808";
+
+                    if (!string.IsNullOrEmpty(tg))
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = tg,
+                            Arguments = "-- \"" + proxyUrl + "\"",
+                            WorkingDirectory = Path.GetDirectoryName(tg)
+                        };
+                        Process.Start(psi);
+                    }
+                    else
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = proxyUrl,
+                            UseShellExecute = true
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Не удалось запустить Telegram: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+
             btnOcGui.Click += (s, e) =>
             {
                 try
@@ -1509,7 +1604,7 @@ namespace AntigravityProxyApp
             card1.BackColor = _p.card;
             card2.BackColor = _p.card;
 
-            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnOcGui, btnOcCli, btnPatch };
+            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch };
             foreach (var b in secButtons)
             {
                 b.Fill = _p.secondaryFill;

@@ -668,7 +668,7 @@ $script:ThemeTag = @()
 # ---------- главное окно ----------
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Antigravity Proxy'
-$form.ClientSize = New-Object System.Drawing.Size(520, 512)
+$form.ClientSize = New-Object System.Drawing.Size(520, 526)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
@@ -804,40 +804,48 @@ $btnSpeed.Add_Click({
 # действия
 $btnStart = New-Object UiButton
 $btnStart.Text = '▶ Запустить Antigravity'
-$btnStart.Location = New-Object System.Drawing.Point(16, 198)
-$btnStart.Size = New-Object System.Drawing.Size(488, 44)
+$btnStart.Location = New-Object System.Drawing.Point(16, 196)
+$btnStart.Size = New-Object System.Drawing.Size(488, 42)
 $btnStart.Radius = 8
 $btnStart.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 10)
 $form.Controls.Add($btnStart)
 
 $btnBrowser = New-Object UiButton
 $btnBrowser.Text = '🌐 AI Studio (Web)'
-$btnBrowser.Location = New-Object System.Drawing.Point(16, 250)
-$btnBrowser.Size = New-Object System.Drawing.Size(180, 36)
+$btnBrowser.Location = New-Object System.Drawing.Point(16, 246)
+$btnBrowser.Size = New-Object System.Drawing.Size(240, 36)
 $btnBrowser.Radius = 7
 $btnBrowser.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.Controls.Add($btnBrowser)
 
+$btnTelegram = New-Object UiButton
+$btnTelegram.Text = '✈ Telegram (Прокси)'
+$btnTelegram.Location = New-Object System.Drawing.Point(264, 246)
+$btnTelegram.Size = New-Object System.Drawing.Size(240, 36)
+$btnTelegram.Radius = 7
+$btnTelegram.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$form.Controls.Add($btnTelegram)
+
 $btnOcGui = New-Object UiButton
 $btnOcGui.Text = '⚡ OpenCode GUI'
-$btnOcGui.Location = New-Object System.Drawing.Point(204, 250)
-$btnOcGui.Size = New-Object System.Drawing.Size(142, 36)
+$btnOcGui.Location = New-Object System.Drawing.Point(16, 288)
+$btnOcGui.Size = New-Object System.Drawing.Size(240, 34)
 $btnOcGui.Radius = 7
 $btnOcGui.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.Controls.Add($btnOcGui)
 
 $btnOcCli = New-Object UiButton
 $btnOcCli.Text = '>_ OpenCode CLI'
-$btnOcCli.Location = New-Object System.Drawing.Point(354, 250)
-$btnOcCli.Size = New-Object System.Drawing.Size(150, 36)
+$btnOcCli.Location = New-Object System.Drawing.Point(264, 288)
+$btnOcCli.Size = New-Object System.Drawing.Size(240, 34)
 $btnOcCli.Radius = 7
 $btnOcCli.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.Controls.Add($btnOcCli)
 
 # карточка состояния
 $card2 = New-Object System.Windows.Forms.Panel
-$card2.Location = New-Object System.Drawing.Point(16, 298)
-$card2.Size = New-Object System.Drawing.Size(488, 156)
+$card2.Location = New-Object System.Drawing.Point(16, 332)
+$card2.Size = New-Object System.Drawing.Size(488, 150)
 $card2.Tag = 'card'
 $form.Controls.Add($card2)
 
@@ -861,7 +869,7 @@ $btnSysProxy.Size = New-Object System.Drawing.Size(250, 32)
 $btnSysProxy.Radius = 7
 $card2.Controls.Add($btnSysProxy)
 
-$lblFoot = New-Lbl 'Прокси-настройки, тема и пути — в «Настройках».' 18 474 480 18 'muted' 8.5
+$lblFoot = New-Lbl 'Прокси-настройки, тема и пути — в «Настройках».' 18 494 480 18 'muted' 8.5
 $form.Controls.Add($lblFoot)
 
 function Update-SysProxyButton {
@@ -901,7 +909,7 @@ function Apply-Theme {
     foreach ($c in @($card1, $card2)) {
         $c.BackColor = $p.card
     }
-    foreach ($b in @($btnTest, $btnSpeed, $btnBrowser, $btnOcGui, $btnOcCli, $btnPatch, $btnTheme, $btnSettings)) {
+    foreach ($b in @($btnTest, $btnSpeed, $btnBrowser, $btnTelegram, $btnOcGui, $btnOcCli, $btnPatch, $btnTheme, $btnSettings)) {
         if (-not $b) { continue }
         $b.Fill = $p.secondaryFill
         $b.Hover = $p.secondaryHover
@@ -1407,6 +1415,33 @@ $btnBrowser.Add_Click({
             '--no-first-run', '--no-default-browser-check',
             'https://aistudio.google.com/')
     } catch { [System.Windows.Forms.MessageBox]::Show('Не удалось открыть браузер: ' + $_.Exception.Message) }
+})
+
+$btnTelegram.Add_Click({
+    try {
+        if (-not (Test-Port 10809) -or -not (Test-Port 10808)) { Restart-Xray | Out-Null }
+        Set-ProxyEnv
+        $tgUrl = 'tg://socks?server=127.0.0.1&port=10808'
+        $tgCmd = (Get-ItemProperty 'HKCU:\Software\Classes\tg\shell\open\command' -ErrorAction SilentlyContinue).'(Default)'
+        $tgExe = $null
+        if ($tgCmd -and ($tgCmd -match '"([^"]+Telegram\.exe)"')) {
+            $tgExe = $matches[1]
+        }
+        if (-not $tgExe) {
+            $candidates = @(
+                (Join-Path $env:APPDATA 'Telegram Desktop\Telegram.exe'),
+                (Join-Path $env:LOCALAPPDATA 'Telegram Desktop\Telegram.exe'),
+                'C:\Program Files\Telegram Desktop\Telegram.exe',
+                'C:\Program Files (x86)\Telegram Desktop\Telegram.exe'
+            )
+            foreach ($c in $candidates) { if (Test-Path $c) { $tgExe = $c; break } }
+        }
+        if ($tgExe -and (Test-Path $tgExe)) {
+            Start-Process -FilePath $tgExe -ArgumentList @('--', ('"' + $tgUrl + '"'))
+        } else {
+            Start-Process -FilePath $tgUrl
+        }
+    } catch { [System.Windows.Forms.MessageBox]::Show('Не удалось запустить Telegram: ' + $_.Exception.Message) }
 })
 
 function Set-ProxyEnv {
