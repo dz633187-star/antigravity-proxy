@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -475,6 +476,7 @@ namespace AntigravityProxyApp
 
     public class ServiceSnapshot
     {
+        public bool XrayInstalled { get; set; }
         public bool XrayHttpUp { get; set; }
         public bool XraySocksUp { get; set; }
         public int XrayPid { get; set; }
@@ -505,6 +507,137 @@ namespace AntigravityProxyApp
         public static string SettingsFile = Path.Combine(AppRoot, "settings.json");
         public static string BrowserProfile = Path.Combine(AppRoot, "BrowserProfile");
         public static string LogFile = Path.Combine(Path.GetTempPath(), "antigravity-proxy.log");
+        public static string LastXrayError = "";
+
+        public static string FindXrayExe()
+        {
+            string[] candidates = {
+                XrayExe,
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "xray.exe"),
+                Path.Combine(AppRoot, "xray.exe")
+            };
+            foreach (var c in candidates)
+            {
+                if (!string.IsNullOrEmpty(c) && File.Exists(c)) return c;
+            }
+            try
+            {
+                string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+                foreach (var dir in pathEnv.Split(';'))
+                {
+                    if (string.IsNullOrWhiteSpace(dir)) continue;
+                    string p = Path.Combine(dir.Trim(), "xray.exe");
+                    if (File.Exists(p)) return p;
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        public static bool DownloadXray(ProxyItem fallbackProxy, Action<string> onProgress)
+        {
+            const string url = "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip";
+            string zipPath = Path.Combine(Path.GetTempPath(), "xray-windows-64-" + Guid.NewGuid().ToString("N") + ".zip");
+            try
+            {
+                if (!Directory.Exists(XrayDir)) Directory.CreateDirectory(XrayDir);
+                if (onProgress != null) onProgress("Скачиваю Xray-core с GitHub…");
+
+                bool downloaded = false;
+                string lastErr = "";
+
+                // 1. Попытка напрямую
+                try
+                {
+                    DownloadFile(url, zipPath, null);
+                    downloaded = true;
+                }
+                catch (Exception ex1)
+                {
+                    lastErr = ex1.Message;
+                    Log("DownloadXray direct failed: " + ex1.Message);
+                }
+
+                // 2. Попытка через настроенный HTTP-прокси, если GitHub недоступен напрямую
+                if (!downloaded && fallbackProxy != null && !string.IsNullOrEmpty(fallbackProxy.host) && fallbackProxy.NormalizedProtocol() == "http")
+                {
+                    try
+                    {
+                        if (onProgress != null) onProgress("Прямая загрузка не удалась, пробую через прокси…");
+                        int pt = 8000;
+                        int.TryParse(fallbackProxy.port, out pt);
+                        var wp = new WebProxy(fallbackProxy.host, pt);
+                        if (!string.IsNullOrEmpty(fallbackProxy.user))
+                            wp.Credentials = new NetworkCredential(fallbackProxy.user, fallbackProxy.pass ?? "");
+                        DownloadFile(url, zipPath, wp);
+                        downloaded = true;
+                    }
+                    catch (Exception ex2)
+                    {
+                        lastErr = ex2.Message;
+                        Log("DownloadXray proxy failed: " + ex2.Message);
+                    }
+                }
+
+                if (!downloaded)
+                {
+                    LastXrayError = "Не удалось скачать Xray-core: " + lastErr;
+                    return false;
+                }
+
+                if (onProgress != null) onProgress("Распаковываю xray.exe…");
+                bool extracted = false;
+                using (var archive = ZipFile.OpenRead(zipPath))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (entry.Name.Equals("xray.exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string dst = XrayExe;
+                            entry.ExtractToFile(dst, true);
+                            extracted = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!extracted || !File.Exists(XrayExe))
+                {
+                    LastXrayError = "В архиве не найден xray.exe";
+                    return false;
+                }
+
+                LastXrayError = "";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LastXrayError = "Ошибка установки Xray-core: " + ex.Message;
+                Log("DownloadXray: " + ex.ToString());
+                return false;
+            }
+            finally
+            {
+                try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
+            }
+        }
+
+        private static void DownloadFile(string url, string destinationPath, IWebProxy proxy)
+        {
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.UserAgent = "AntigravityProxy/1.3";
+            req.AllowAutoRedirect = true;
+            req.Timeout = 30000;
+            req.ReadWriteTimeout = 30000;
+            if (proxy != null) req.Proxy = proxy;
+
+            using (var resp = req.GetResponse())
+            using (var src = resp.GetResponseStream())
+            using (var dst = File.Create(destinationPath))
+            {
+                src.CopyTo(dst);
+            }
+        }
 
         public static void Log(string msg)
         {
@@ -742,33 +875,64 @@ namespace AntigravityProxyApp
 
         public static bool RestartXray()
         {
+            LastXrayError = "";
             try
             {
+                string exe = FindXrayExe();
+                if (string.IsNullOrEmpty(exe))
+                {
+                    LastXrayError = "Не найден xray.exe (нажмите «Скачать Xray»)";
+                    Log("RestartXray: xray.exe not found");
+                    return false;
+                }
+
                 foreach (var p in Process.GetProcessesByName("xray"))
                 {
                     try { p.Kill(); p.WaitForExit(1500); } catch { }
                 }
                 System.Threading.Thread.Sleep(350);
 
-                if (!File.Exists(XrayExe)) return false;
+                if (!File.Exists(XrayCfg))
+                {
+                    LastXrayError = "Не создан конфиг Xray (укажите прокси в Настройках)";
+                    return false;
+                }
+
                 var psi = new ProcessStartInfo
                 {
-                    FileName = XrayExe,
+                    FileName = exe,
                     Arguments = "run -c \"" + XrayCfg + "\"",
-                    WorkingDirectory = XrayDir,
+                    WorkingDirectory = Path.GetDirectoryName(exe),
                     WindowStyle = ProcessWindowStyle.Hidden,
                     CreateNoWindow = true,
-                    UseShellExecute = false
+                    UseShellExecute = false,
+                    RedirectStandardError = true
                 };
-                Process.Start(psi);
+                var proc = Process.Start(psi);
 
                 for (int i = 0; i < 20; i++)
                 {
                     System.Threading.Thread.Sleep(250);
                     if (TestPort(10809)) return true;
+                    if (proc != null && proc.HasExited)
+                    {
+                        string errText = "";
+                        try { errText = proc.StandardError.ReadToEnd().Trim(); } catch { }
+                        if (errText.Length > 180) errText = errText.Substring(0, 180);
+                        LastXrayError = string.IsNullOrEmpty(errText)
+                            ? ("Xray завершился с кодом " + proc.ExitCode)
+                            : errText;
+                        Log("RestartXray exited early: " + LastXrayError);
+                        return false;
+                    }
                 }
+                LastXrayError = "Xray запущен, но порт 10809 не открылся";
             }
-            catch (Exception ex) { Log("RestartXray: " + ex.Message); }
+            catch (Exception ex)
+            {
+                LastXrayError = ex.Message;
+                Log("RestartXray: " + ex.Message);
+            }
             return false;
         }
 
@@ -1101,6 +1265,7 @@ namespace AntigravityProxyApp
         public static ServiceSnapshot CollectServices()
         {
             var snap = new ServiceSnapshot();
+            snap.XrayInstalled = !string.IsNullOrEmpty(FindXrayExe());
             snap.XrayHttpUp = TestPort(10809, 250);
             snap.XraySocksUp = TestPort(10808, 250);
             snap.AgdnsUp = TestPort(53, 250);
@@ -1119,12 +1284,16 @@ namespace AntigravityProxyApp
             snap.AntigravityPath = FindAntigravityApp();
             if (!string.IsNullOrEmpty(snap.AntigravityPath))
             {
-                string ls = FindLanguageServer(snap.AntigravityPath);
-                snap.PatchApplied = TestPatched(ls);
+                snap.PatchApplied = TestAntigravityPatched(snap.AntigravityPath);
             }
 
             try { snap.AntigravityRunning = Process.GetProcessesByName("Antigravity").Length > 0; } catch { }
-            try { snap.LanguageServerRunning = Process.GetProcessesByName("language_server").Length > 0; } catch { }
+            try
+            {
+                snap.LanguageServerRunning = Process.GetProcessesByName("language_server").Length > 0
+                    || Process.GetProcessesByName("language_server_windows_x64").Length > 0;
+            }
+            catch { }
             try { snap.TelegramRunning = Process.GetProcessesByName("Telegram").Length > 0; } catch { }
             try { snap.OpenCodeRunning = Process.GetProcessesByName("OpenCode").Length > 0 || Process.GetProcessesByName("opencode").Length > 0; } catch { }
             try { snap.AgUnlockerConflict = Process.GetProcessesByName("ag_dns").Length > 0; } catch { }
@@ -1134,35 +1303,85 @@ namespace AntigravityProxyApp
 
         public static string FindAntigravityApp()
         {
+            // 1. Сначала проверим запущенный процесс Antigravity (если установлен в нестандартную папку)
+            try
+            {
+                foreach (var p in Process.GetProcessesByName("Antigravity"))
+                {
+                    try
+                    {
+                        string path = p.MainModule.FileName;
+                        if (!string.IsNullOrEmpty(path) && File.Exists(path)) return path;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string prog = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string prog86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
             string[] candidates = {
                 Path.Combine(local, @"Programs\antigravity\Antigravity.exe"),
                 Path.Combine(local, @"Programs\Antigravity\Antigravity.exe"),
                 Path.Combine(local, @"Programs\Antigravity 2.0\Antigravity.exe"),
-                Path.Combine(local, @"Programs\Antigravity IDE\Antigravity IDE.exe")
+                Path.Combine(local, @"Programs\Antigravity IDE\Antigravity IDE.exe"),
+                Path.Combine(local, @"Programs\Antigravity IDE\Antigravity.exe"),
+                Path.Combine(prog, @"Antigravity\Antigravity.exe"),
+                Path.Combine(prog, @"Antigravity IDE\Antigravity IDE.exe"),
+                Path.Combine(prog86, @"Antigravity\Antigravity.exe")
             };
             foreach (var c in candidates)
             {
-                if (File.Exists(c)) return c;
+                if (!string.IsNullOrEmpty(c) && File.Exists(c)) return c;
             }
             return "";
         }
 
-        public static string FindLanguageServer(string appPath)
+        public static List<string> FindLanguageServers(string appPath)
         {
-            if (string.IsNullOrEmpty(appPath)) return "";
+            var result = new List<string>();
+            if (string.IsNullOrEmpty(appPath)) return result;
             string dir = Path.GetDirectoryName(appPath);
             string resDir = Path.Combine(dir, "resources");
             if (Directory.Exists(resDir))
             {
                 try
                 {
-                    var files = Directory.GetFiles(resDir, "language_server.exe", SearchOption.AllDirectories);
-                    if (files.Length > 0) return files[0];
+                    var files = Directory.GetFiles(resDir, "language_server*.exe", SearchOption.AllDirectories);
+                    foreach (var f in files)
+                    {
+                        if (!f.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+                            result.Add(f);
+                    }
                 }
                 catch { }
             }
-            return "";
+            return result;
+        }
+
+        public static string FindLanguageServer(string appPath)
+        {
+            var list = FindLanguageServers(appPath);
+            return list.Count > 0 ? list[0] : "";
+        }
+
+        private static bool ContainsBytes(byte[] buffer, int count, byte[] pattern)
+        {
+            int limit = count - pattern.Length;
+            byte first = pattern[0];
+            for (int i = 0; i <= limit; i++)
+            {
+                if (buffer[i] != first) continue;
+                bool match = true;
+                for (int j = 1; j < pattern.Length; j++)
+                {
+                    if (buffer[i + j] != pattern[j]) { match = false; break; }
+                }
+                if (match) return true;
+            }
+            return false;
         }
 
         public static bool? TestPatched(string lsPath)
@@ -1170,22 +1389,53 @@ namespace AntigravityProxyApp
             if (string.IsNullOrEmpty(lsPath) || !File.Exists(lsPath)) return null;
             try
             {
-                using (var fs = File.OpenRead(lsPath))
+                byte[] needle = Encoding.ASCII.GetBytes("inexigible");
+                int overlap = needle.Length;
+                const int chunkSize = 4 * 1024 * 1024;
+                byte[] buf = new byte[chunkSize + overlap];
+
+                using (var fs = new FileStream(lsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 {
-                    byte[] buf = new byte[4 * 1024 * 1024];
-                    string carry = "";
-                    int n = 0;
-                    while ((n = fs.Read(buf, 0, buf.Length)) > 0)
+                    int carry = 0;
+                    int read;
+                    while ((read = fs.Read(buf, carry, chunkSize)) > 0)
                     {
-                        string chunk = carry + Encoding.ASCII.GetString(buf, 0, n);
-                        if (chunk.Contains("inexigible")) return true;
-                        if (chunk.Contains("ineligible")) return false;
-                        carry = chunk.Length > 32 ? chunk.Substring(chunk.Length - 32) : chunk;
+                        int total = carry + read;
+                        if (ContainsBytes(buf, total, needle)) return true;
+
+                        if (total >= overlap)
+                        {
+                            Buffer.BlockCopy(buf, total - overlap, buf, 0, overlap);
+                            carry = overlap;
+                        }
+                        else
+                        {
+                            carry = total;
+                        }
                     }
                 }
                 return false;
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                Log("TestPatched (" + lsPath + "): " + ex.Message);
+                return null;
+            }
+        }
+
+        public static bool? TestAntigravityPatched(string appPath)
+        {
+            var servers = FindLanguageServers(appPath);
+            if (servers.Count == 0) return null;
+
+            bool anyChecked = false;
+            foreach (var ls in servers)
+            {
+                var res = TestPatched(ls);
+                if (res == true) return true;
+                if (res == false) anyChecked = true;
+            }
+            return anyChecked ? (bool?)false : null;
         }
 
         public static string FindBrowser()
@@ -1794,12 +2044,12 @@ namespace AntigravityProxyApp
             SwitchTab(0);
             InitTray();
 
-            Shown += (s, e) =>
+            Shown += async (s, e) =>
             {
                 Activate();
-                EnsureActiveProxySynced();
-                UpdateStatusAsync();
                 UpdatePatch();
+                await Task.Run(() => EnsureActiveProxySynced());
+                UpdateStatusAsync();
             };
 
             Resize += (s, e) =>
@@ -2082,7 +2332,7 @@ namespace AntigravityProxyApp
                 ApplyTheme();
             };
 
-            btnSettings.Click += (s, e) =>
+            btnSettings.Click += async (s, e) =>
             {
                 using (var dlg = new SettingsDialog(_settings, _p, Icon))
                 {
@@ -2092,8 +2342,15 @@ namespace AntigravityProxyApp
                         _p = Palette.Get(_settings.theme);
                         ApplyTheme();
                         RefreshProxyComboBox();
-                        EnsureActiveProxySynced();
-                        UpdateStatusAsync();
+                        if (string.IsNullOrEmpty(AppCore.FindXrayExe()))
+                        {
+                            await EnsureXrayInstalledAndStartAsync();
+                        }
+                        else
+                        {
+                            await Task.Run(() => EnsureActiveProxySynced());
+                            UpdateStatusAsync();
+                        }
                         UpdatePatch();
                         if (_activeTab == 2) RefreshServicesAsync();
                     }
@@ -2111,7 +2368,17 @@ namespace AntigravityProxyApp
                 }
             };
 
-            btnStatus.Click += (s, e) => UpdateStatusAsync();
+            btnStatus.Click += async (s, e) =>
+            {
+                if (string.IsNullOrEmpty(AppCore.FindXrayExe()))
+                {
+                    await EnsureXrayInstalledAndStartAsync();
+                }
+                else
+                {
+                    UpdateStatusAsync();
+                }
+            };
 
             btnSpeed.Click += async (s, e) =>
             {
@@ -2380,6 +2647,12 @@ namespace AntigravityProxyApp
 
             btnSrvRestartXray.Click += async (s, e) =>
             {
+                if (string.IsNullOrEmpty(AppCore.FindXrayExe()))
+                {
+                    await EnsureXrayInstalledAndStartAsync();
+                    RefreshServicesAsync();
+                    return;
+                }
                 btnSrvRestartXray.Enabled = false;
                 btnSrvRestartXray.Text = "Запуск…";
                 await Task.Run(() =>
@@ -2664,6 +2937,11 @@ namespace AntigravityProxyApp
             var p = _settings.proxies[newIdx];
             if (p != null && !string.IsNullOrEmpty(p.host))
             {
+                if (string.IsNullOrEmpty(AppCore.FindXrayExe()))
+                {
+                    await EnsureXrayInstalledAndStartAsync();
+                    return;
+                }
                 lblStatus.Text = "Переключение узла…";
                 lblStatus.ForeColor = _p.warn;
                 dotNode.DotColor = _p.warn;
@@ -2682,12 +2960,89 @@ namespace AntigravityProxyApp
             }
         }
 
+        private async Task EnsureXrayInstalledAndStartAsync()
+        {
+            btnStatus.Enabled = false;
+            btnSrvRestartXray.Enabled = false;
+            lblStatus.Text = "Установка Xray-core…";
+            lblStatus.ForeColor = _p.warn;
+            dotNode.DotColor = _p.warn;
+            dotHeader.DotColor = _p.warn;
+            lblHeaderStatus.Text = "Загрузка Xray-core…";
+            lblDetail.Text = "Подключение к GitHub Releases…";
+            lblNodeMeta.Text = "";
+
+            var act = GetActiveProxy();
+            bool ok = await Task.Run(() => AppCore.DownloadXray(act, msg =>
+            {
+                try
+                {
+                    BeginInvoke((Action)(() =>
+                    {
+                        lblDetail.Text = msg;
+                        lblSrvHttpVal.Text = msg;
+                    }));
+                }
+                catch { }
+            }));
+
+            if (ok)
+            {
+                lblStatus.Text = "Запуск Xray-core…";
+                lblDetail.Text = "Применяю настройки прокси…";
+                await Task.Run(() =>
+                {
+                    if (act != null && !string.IsNullOrEmpty(act.host))
+                    {
+                        AppCore.WriteXrayConfig(act.host, act.port, act.user, act.pass, act.NormalizedProtocol());
+                        AppCore.RestartXray();
+                    }
+                });
+            }
+            else
+            {
+                lblStatus.Text = "Не удалось скачать Xray-core";
+                lblStatus.ForeColor = _p.err;
+                dotNode.DotColor = _p.err;
+                dotHeader.DotColor = _p.err;
+                lblDetail.Text = AppCore.LastXrayError;
+                MessageBox.Show(AppCore.LastXrayError + "\r\n\r\nВы также можете скачать Xray-windows-64.zip вручную и положить xray.exe в:\r\n" + AppCore.XrayDir,
+                    "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            btnStatus.Enabled = true;
+            btnSrvRestartXray.Enabled = true;
+            UpdateStatusAsync();
+            if (_activeTab == 2) RefreshServicesAsync();
+        }
+
         private async void UpdateStatusAsync()
         {
             var active = GetActiveProxy();
             string proxyName = (active != null && !string.IsNullOrEmpty(active.name)) ? active.name : "Прокси";
             string proto = (active != null) ? active.NormalizedProtocol().ToUpperInvariant() : "HTTP";
             string where = (active != null && !string.IsNullOrEmpty(active.host)) ? string.Format("{0}:{1}", active.host, active.port) : "не задан";
+
+            if (string.IsNullOrEmpty(AppCore.FindXrayExe()))
+            {
+                lblStatus.Text = "Не установлен Xray-core";
+                lblStatus.ForeColor = _p.warn;
+                dotNode.DotColor = _p.warn;
+                dotHeader.DotColor = _p.warn;
+                lblHeaderStatus.Text = "Требуется xray.exe";
+                lblDetail.Text = "Нажмите «Скачать Xray» для автоматической установки";
+                lblNodeMeta.Text = "Папка: " + AppCore.XrayDir;
+                btnStatus.Text = "Скачать Xray";
+                StylePrimaryButton(btnStatus);
+                btnStatus.Invalidate();
+                return;
+            }
+            else
+            {
+                btnStatus.Text = "Обновить";
+                StyleSecondaryButton(btnStatus);
+                btnStatus.Invalidate();
+            }
 
             if (!AppCore.TestPort(10809))
             {
@@ -2696,8 +3051,10 @@ namespace AntigravityProxyApp
                 dotNode.DotColor = _p.err;
                 dotHeader.DotColor = _p.err;
                 lblHeaderStatus.Text = "Xray остановлен";
-                lblDetail.Text = "Откройте «Настройки» и сохраните параметры прокси";
-                lblNodeMeta.Text = "";
+                lblDetail.Text = !string.IsNullOrEmpty(AppCore.LastXrayError)
+                    ? AppCore.LastXrayError
+                    : "Откройте «Настройки» и сохраните параметры прокси";
+                lblNodeMeta.Text = string.Format("{0} ({1} · {2})", proxyName, proto, where);
                 return;
             }
 
@@ -2731,17 +3088,32 @@ namespace AntigravityProxyApp
             }
         }
 
-        private void UpdatePatch()
+        private async void UpdatePatch()
         {
-            string app = AppCore.FindAntigravityApp();
-            if (!string.IsNullOrEmpty(app))
+            lblPatch.Text = "Патч: проверка…";
+            lblPatch.ForeColor = _p.muted;
+            dotPatch.DotColor = _p.muted;
+
+            var result = await Task.Run(() =>
             {
-                lblApp.Text = app;
+                string app = AppCore.FindAntigravityApp();
+                bool? patched = null;
+                if (!string.IsNullOrEmpty(app))
+                {
+                    patched = AppCore.TestAntigravityPatched(app);
+                }
+                return Tuple.Create(app, patched);
+            });
+
+            string foundApp = result.Item1;
+            bool? isPatched = result.Item2;
+
+            if (!string.IsNullOrEmpty(foundApp))
+            {
+                lblApp.Text = foundApp;
                 lblApp.ForeColor = _p.muted;
-                string ls = AppCore.FindLanguageServer(app);
-                var patched = AppCore.TestPatched(ls);
-                if (patched == true) { lblPatch.Text = "Патч применён"; lblPatch.ForeColor = _p.ok; dotPatch.DotColor = _p.ok; }
-                else if (patched == false) { lblPatch.Text = "Патч не применён"; lblPatch.ForeColor = _p.err; dotPatch.DotColor = _p.err; }
+                if (isPatched == true) { lblPatch.Text = "Патч применён"; lblPatch.ForeColor = _p.ok; dotPatch.DotColor = _p.ok; }
+                else if (isPatched == false) { lblPatch.Text = "Патч не применён"; lblPatch.ForeColor = _p.err; dotPatch.DotColor = _p.err; }
                 else { lblPatch.Text = "Патч: не удалось проверить"; lblPatch.ForeColor = _p.muted; dotPatch.DotColor = _p.muted; }
             }
             else
@@ -2761,19 +3133,30 @@ namespace AntigravityProxyApp
             btnSrvRefresh.Enabled = true;
 
             // 1. Xray HTTP
-            if (snap.XrayHttpUp)
+            if (!snap.XrayInstalled)
+            {
+                dotSrvHttp.DotColor = _p.warn;
+                lblSrvHttpVal.Text = "Не установлен xray.exe (нажмите «Скачать Xray»)";
+                lblSrvHttpVal.ForeColor = _p.warn;
+                btnSrvRestartXray.Text = "Скачать Xray";
+            }
+            else if (snap.XrayHttpUp)
             {
                 dotSrvHttp.DotColor = _p.ok;
                 lblSrvHttpVal.Text = snap.XrayPid > 0
                     ? string.Format("Работает · 127.0.0.1:10809 · PID {0}", snap.XrayPid)
                     : "Работает · 127.0.0.1:10809";
                 lblSrvHttpVal.ForeColor = _p.ok;
+                btnSrvRestartXray.Text = "Перезапуск";
             }
             else
             {
                 dotSrvHttp.DotColor = _p.err;
-                lblSrvHttpVal.Text = "Остановлен (порт 10809 не слушается)";
+                lblSrvHttpVal.Text = !string.IsNullOrEmpty(AppCore.LastXrayError)
+                    ? ("Остановлен · " + AppCore.LastXrayError)
+                    : "Остановлен (порт 10809 не слушается)";
                 lblSrvHttpVal.ForeColor = _p.err;
+                btnSrvRestartXray.Text = "Перезапуск";
             }
 
             // 2. Xray SOCKS5
