@@ -507,7 +507,7 @@ namespace AntigravityProxyApp
 
     public class AppCore
     {
-        public const string AppVersion = "1.3.3";
+        public const string AppVersion = "1.3.4";
         private const string RepoOwner = "dz633187-star";
         private const string RepoName = "antigravity-proxy";
 
@@ -1854,6 +1854,331 @@ namespace AntigravityProxyApp
             }
             return "";
         }
+
+        public static string BuildDiagnosticsReport(AppSettings settings)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Antigravity Proxy Diagnostics ===");
+            sb.AppendLine("Timestamp: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss zzz"));
+            sb.AppendLine("App Version: v" + AppVersion);
+            try { sb.AppendLine("App Exe: " + Process.GetCurrentProcess().MainModule.FileName); } catch { }
+            sb.AppendLine("OS: " + Environment.OSVersion.VersionString + (Environment.Is64BitOperatingSystem ? " (x64)" : " (x86)"));
+            sb.AppendLine("Runtime: .NET " + Environment.Version);
+            sb.AppendLine();
+
+            // 1. Xray
+            sb.AppendLine("--- Xray-core ---");
+            string xrayPath = FindXrayExe();
+            sb.AppendLine("xray.exe: " + (string.IsNullOrEmpty(xrayPath) ? "NOT FOUND" : xrayPath));
+            if (!string.IsNullOrEmpty(xrayPath) && File.Exists(xrayPath))
+            {
+                try
+                {
+                    var fi = new FileInfo(xrayPath);
+                    sb.AppendLine(string.Format("xray.exe info: {0:N0} bytes, modified {1:yyyy-MM-dd HH:mm:ss}", fi.Length, fi.LastWriteTime));
+                }
+                catch { }
+            }
+            sb.AppendLine("config.json: " + (File.Exists(XrayCfg) ? XrayCfg : "NOT FOUND"));
+            var curXray = GetCurrentXrayServer();
+            if (curXray != null)
+            {
+                sb.AppendLine(string.Format("config upstream: {0}://{1}:{2} (auth={3})",
+                    curXray.NormalizedProtocol(), curXray.host, curXray.port, !string.IsNullOrEmpty(curXray.user)));
+            }
+            else
+            {
+                sb.AppendLine("config upstream: <none / parse failed>");
+            }
+            bool p10809 = TestPort(10809, 300);
+            bool p10808 = TestPort(10808, 300);
+            sb.AppendLine("Port 127.0.0.1:10809 (HTTP): " + (p10809 ? "LISTENING" : "CLOSED"));
+            sb.AppendLine("Port 127.0.0.1:10808 (SOCKS5): " + (p10808 ? "LISTENING" : "CLOSED"));
+            try
+            {
+                var xp = Process.GetProcessesByName("xray");
+                sb.AppendLine("xray processes: " + (xp.Length > 0 ? string.Join(", ", Array.ConvertAll(xp, p => "PID " + p.Id)) : "none"));
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(LastXrayError))
+                sb.AppendLine("LastXrayError: " + LastXrayError);
+
+            if (p10809)
+            {
+                var ext = CheckDirectProxyInfo("127.0.0.1", "10809", "", "", "http");
+                if (ext.Ok)
+                    sb.AppendLine(string.Format("Proxy exit check: OK -> {0} ({1}, {2}) {3} ms", ext.Ip, ext.Country, ext.City, ext.PingMs));
+                else
+                    sb.AppendLine("Proxy exit check: FAIL -> " + ext.Error);
+            }
+            sb.AppendLine();
+
+            // 2. Settings (passwords masked)
+            sb.AppendLine("--- Profiles (passwords masked) ---");
+            if (settings != null && settings.proxies != null)
+            {
+                for (int i = 0; i < settings.proxies.Count; i++)
+                {
+                    var px = settings.proxies[i];
+                    string mark = (i == settings.activeProxyIndex) ? "*" : " ";
+                    sb.AppendLine(string.Format("[{0}] {1}: {2}://{3}:{4} (user={5}, pass={6})",
+                        mark, px.name, px.NormalizedProtocol(), px.host, px.port,
+                        string.IsNullOrEmpty(px.user) ? "<none>" : "<set>",
+                        string.IsNullOrEmpty(px.pass) ? "<none>" : "***"));
+                }
+            }
+            sb.AppendLine();
+
+            // 3. System Proxy, DNS, Env
+            sb.AppendLine("--- System Proxy / DNS / Env ---");
+            string sysSrv;
+            bool sysOn = IsAnySystemProxyEnabled(out sysSrv);
+            sb.AppendLine("Windows System Proxy: " + (sysOn ? ("ENABLED -> " + sysSrv) : "DISABLED"));
+            sb.AppendLine("AGDNS 127.0.0.1:53: " + (TestPort(53, 300) ? "LISTENING" : "CLOSED"));
+            try
+            {
+                var agd = Process.GetProcessesByName("ag_dns");
+                sb.AppendLine("AGUnlocker ag_dns: " + (agd.Length > 0 ? "RUNNING (CONFLICT!)" : "not running"));
+            }
+            catch { }
+
+            string[] envKeys = { "AG_LS_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY" };
+            foreach (var k in envKeys)
+            {
+                string uv = Environment.GetEnvironmentVariable(k, EnvironmentVariableTarget.User);
+                string mv = Environment.GetEnvironmentVariable(k, EnvironmentVariableTarget.Machine);
+                if (!string.IsNullOrEmpty(uv) || !string.IsNullOrEmpty(mv))
+                    sb.AppendLine(string.Format("Env {0}: User='{1}', Machine='{2}'", k, uv ?? "", mv ?? ""));
+            }
+            sb.AppendLine();
+
+            // 4. Antigravity & Patch details
+            sb.AppendLine("--- Antigravity & Patch ---");
+            var apps = FindAllAntigravityApps();
+            if (apps.Count == 0)
+            {
+                sb.AppendLine("Antigravity installations: NONE FOUND");
+            }
+            else
+            {
+                foreach (var app in apps)
+                {
+                    sb.AppendLine("Install: " + app);
+                    string dir = Path.GetDirectoryName(app);
+                    try
+                    {
+                        var agybaks = Directory.GetFiles(dir, "*.agybak", SearchOption.AllDirectories);
+                        sb.AppendLine("  *.agybak backups: " + (agybaks.Length > 0 ? string.Join("; ", agybaks) : "none"));
+                    }
+                    catch (Exception ex) { sb.AppendLine("  *.agybak scan error: " + ex.Message); }
+
+                    var servers = FindLanguageServers(app);
+                    if (servers.Count == 0)
+                    {
+                        sb.AppendLine("  language_server*.exe: NONE FOUND");
+                    }
+                    else
+                    {
+                        foreach (var ls in servers)
+                        {
+                            try
+                            {
+                                var fi = new FileInfo(ls);
+                                sb.AppendLine(string.Format("  LS: {0} ({1:N0} bytes, {2:yyyy-MM-dd HH:mm})", ls, fi.Length, fi.LastWriteTime));
+                                bool hasBak = File.Exists(ls + ".agybak") || File.Exists(ls + ".bak") || File.Exists(ls + ".orig");
+                                sb.AppendLine("    backup alongside: " + hasBak);
+                                sb.AppendLine("    TestPatched(): " + (TestPatched(ls).HasValue ? TestPatched(ls).Value.ToString() : "null"));
+                            }
+                            catch (Exception ex) { sb.AppendLine("    inspect error: " + ex.Message); }
+                        }
+                    }
+                    var overall = TestAntigravityPatched(app);
+                    sb.AppendLine("  Overall Patch Status: " + (overall.HasValue ? overall.Value.ToString() : "null"));
+                }
+            }
+            string patcher = FindPatcher();
+            sb.AppendLine("Patcher exe: " + (string.IsNullOrEmpty(patcher) ? "not found" : patcher));
+            sb.AppendLine();
+
+            // 5. Running processes
+            sb.AppendLine("--- Active Processes ---");
+            string[] watchProcs = { "Antigravity", "language_server", "language_server_windows_x64", "xray", "Telegram", "OpenCode", "opencode", "ag_dns" };
+            foreach (var pn in watchProcs)
+            {
+                try
+                {
+                    var ps = Process.GetProcessesByName(pn);
+                    if (ps.Length > 0)
+                        sb.AppendLine(string.Format("  {0}: {1} proc(s) [{2}]", pn, ps.Length, string.Join(", ", Array.ConvertAll(ps, x => x.Id.ToString()))));
+                }
+                catch { }
+            }
+            sb.AppendLine();
+
+            // 6. Recent log lines
+            sb.AppendLine("--- Recent Log (" + LogFile + ") ---");
+            try
+            {
+                if (File.Exists(LogFile))
+                {
+                    var lines = File.ReadAllLines(LogFile, Encoding.UTF8);
+                    int start = Math.Max(0, lines.Length - 25);
+                    for (int i = start; i < lines.Length; i++) sb.AppendLine("  " + lines[i]);
+                }
+                else
+                {
+                    sb.AppendLine("  <log file is empty>");
+                }
+            }
+            catch (Exception ex) { sb.AppendLine("  log read error: " + ex.Message); }
+
+            return sb.ToString();
+        }
+    }
+
+    public class DiagnosticsDialog : Form
+    {
+        private AppSettings _settings;
+        private Palette _p;
+        private TextBox tbReport;
+        private UiButton btnCopy, btnRefresh, btnOpenLog, btnClose;
+        private Label lblCopied;
+
+        public DiagnosticsDialog(AppSettings settings, Palette palette, Icon icon)
+        {
+            _settings = settings;
+            _p = palette;
+            if (icon != null) Icon = icon;
+
+            Text = "Отладочная информация — Antigravity Proxy v" + AppCore.AppVersion;
+            ClientSize = new Size(640, 500);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            BackColor = _p.bg;
+            Font = new Font("Segoe UI", 9f);
+            AutoScaleMode = AutoScaleMode.None;
+
+            var lblTitle = new Label
+            {
+                Text = "Диагностический отчёт (пароли скрыты)",
+                Location = new Point(18, 14),
+                Size = new Size(420, 22),
+                ForeColor = _p.ink,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI Semibold", 10.5f)
+            };
+            Controls.Add(lblTitle);
+
+            tbReport = new TextBox
+            {
+                Location = new Point(18, 44),
+                Size = new Size(604, 392),
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Both,
+                WordWrap = false,
+                BackColor = _p.inputBg,
+                ForeColor = _p.ink,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 8.5f),
+                Text = "Сбор отладочной информации…"
+            };
+            Controls.Add(tbReport);
+
+            btnCopy = new UiButton
+            {
+                Text = "Скопировать отчёт",
+                Location = new Point(18, 448),
+                Size = new Size(160, 36),
+                Radius = 7,
+                Fill = _p.accent,
+                Hover = _p.accentHover,
+                Pressed = _p.accentPressed,
+                BorderWidth = 0,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI Semibold", 9f)
+            };
+            Controls.Add(btnCopy);
+
+            btnRefresh = new UiButton { Text = "Обновить", Location = new Point(186, 448), Size = new Size(96, 36), Radius = 7 };
+            StyleSec(btnRefresh);
+            Controls.Add(btnRefresh);
+
+            btnOpenLog = new UiButton { Text = "Папка Xray", Location = new Point(290, 448), Size = new Size(106, 36), Radius = 7 };
+            StyleSec(btnOpenLog);
+            Controls.Add(btnOpenLog);
+
+            lblCopied = new Label
+            {
+                Text = "",
+                Location = new Point(404, 456),
+                Size = new Size(122, 20),
+                ForeColor = _p.ok,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 8.5f),
+                TextAlign = ContentAlignment.MiddleRight
+            };
+            Controls.Add(lblCopied);
+
+            btnClose = new UiButton { Text = "Закрыть", Location = new Point(532, 448), Size = new Size(90, 36), Radius = 7 };
+            StyleSec(btnClose);
+            Controls.Add(btnClose);
+
+            btnCopy.Click += (s, e) =>
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(tbReport.Text))
+                    {
+                        Clipboard.SetText(tbReport.Text);
+                        lblCopied.Text = "Скопировано";
+                    }
+                }
+                catch { }
+            };
+
+            btnRefresh.Click += (s, e) => LoadReportAsync();
+
+            btnOpenLog.Click += (s, e) =>
+            {
+                try
+                {
+                    string dir = Directory.Exists(AppCore.XrayDir) ? AppCore.XrayDir : Path.GetTempPath();
+                    Process.Start("explorer.exe", "\"" + dir + "\"");
+                }
+                catch { }
+            };
+
+            btnClose.Click += (s, e) => Close();
+            Shown += (s, e) => LoadReportAsync();
+        }
+
+        private void StyleSec(UiButton b)
+        {
+            b.Fill = _p.secondaryFill;
+            b.Hover = _p.secondaryHover;
+            b.Pressed = _p.secondaryPressed;
+            b.BorderColor = _p.secondaryBorder;
+            b.HoverBorderColor = _p.secondaryHoverBorder;
+            b.BorderWidth = 1;
+            b.ForeColor = _p.secondaryText;
+            b.DisabledFill = _p.disabledFill;
+            b.DisabledText = _p.disabledText;
+        }
+
+        private async void LoadReportAsync()
+        {
+            btnRefresh.Enabled = false;
+            lblCopied.Text = "";
+            tbReport.Text = "Сбор отладочной информации (проверка портов, Xray, патча)…";
+            string report = await Task.Run(() => AppCore.BuildDiagnosticsReport(_settings));
+            tbReport.Text = report;
+            tbReport.SelectionStart = 0;
+            tbReport.SelectionLength = 0;
+            btnRefresh.Enabled = true;
+        }
     }
 
     public class SettingsDialog : Form
@@ -1865,7 +2190,7 @@ namespace AntigravityProxyApp
         private Palette _p;
 
         private UiComboBox cbList, cbProto;
-        private UiButton btnAdd, btnDel, btnActive, btnTest, btnSave, btnCancel;
+        private UiButton btnAdd, btnDel, btnActive, btnTest, btnSave, btnCancel, btnDebug;
         private TextBox tbName, tbH, tbPt, tbU, tbPw;
         private RadioButton rbDark, rbLight;
         private CheckBox chkAutoUpdate;
@@ -2066,9 +2391,21 @@ namespace AntigravityProxyApp
             };
             Controls.Add(btnSave);
 
-            btnCancel = new UiButton { Text = "Отмена", Location = new Point(214, 480), Size = new Size(110, 40), Radius = 7 };
+            btnCancel = new UiButton { Text = "Отмена", Location = new Point(214, 480), Size = new Size(104, 40), Radius = 7 };
             StyleSec(btnCancel);
             Controls.Add(btnCancel);
+
+            btnDebug = new UiButton { Text = "Отладка", Location = new Point(328, 480), Size = new Size(128, 40), Radius = 7 };
+            StyleSec(btnDebug);
+            Controls.Add(btnDebug);
+
+            btnDebug.Click += (s, e) =>
+            {
+                using (var dlg = new DiagnosticsDialog(_settings, _p, Icon))
+                {
+                    dlg.ShowDialog(this);
+                }
+            };
 
             cbList.SelectedIndexChanged += (s, e) =>
             {

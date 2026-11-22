@@ -1,5 +1,5 @@
 {
-  "version": "1.3.3",
-  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.3/AntigravityProxy.exe",
-  "notes": "Поддержка определения новых бинарных патчей Open AG Patcher для Antigravity 2.0+ (*.agybak / hasValidAuth)."
+  "version": "1.3.4",
+  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.4/AntigravityProxy.exe",
+  "notes": "Добавлена кнопка «Отладка» в Настройках с полным диагностическим отчётом (Xray, порты, DNS, Antigravity, файлы патча и логи) для удалённого решения проблем."
 }
