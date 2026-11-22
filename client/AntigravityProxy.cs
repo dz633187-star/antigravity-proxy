@@ -7,6 +7,7 @@ using System.Drawing.Text;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -19,6 +20,7 @@ namespace AntigravityProxyApp
     public class ProxyItem
     {
         public string name { get; set; }
+        public string protocol { get; set; }
         public string host { get; set; }
         public string port { get; set; }
         public string user { get; set; }
@@ -27,10 +29,18 @@ namespace AntigravityProxyApp
         public ProxyItem()
         {
             name = "Прокси";
+            protocol = "http";
             host = "";
             port = "8000";
             user = "";
             pass = "";
+        }
+
+        public string NormalizedProtocol()
+        {
+            if (string.IsNullOrEmpty(protocol)) return "http";
+            string p = protocol.Trim().ToLowerInvariant();
+            return (p == "socks" || p == "socks5") ? "socks" : "http";
         }
 
         public ProxyItem Clone()
@@ -38,6 +48,7 @@ namespace AntigravityProxyApp
             return new ProxyItem
             {
                 name = this.name,
+                protocol = this.NormalizedProtocol(),
                 host = this.host,
                 port = this.port,
                 user = this.user,
@@ -46,87 +57,230 @@ namespace AntigravityProxyApp
         }
     }
 
+    public class CustomAppItem
+    {
+        public string name { get; set; }
+        public string path { get; set; }
+        public string args { get; set; }
+        public bool chromiumFlag { get; set; }
+
+        public CustomAppItem()
+        {
+            name = "";
+            path = "";
+            args = "";
+            chromiumFlag = false;
+        }
+    }
+
     public class AppSettings
     {
         public string theme { get; set; }
         public int activeProxyIndex { get; set; }
         public List<ProxyItem> proxies { get; set; }
+        public List<CustomAppItem> customApps { get; set; }
 
         public AppSettings()
         {
             theme = "dark";
             activeProxyIndex = 0;
             proxies = new List<ProxyItem>();
+            customApps = new List<CustomAppItem>();
         }
     }
 
     public class Palette
     {
-        public Color bg, card, ink, muted, border, accent, accentHover, accentPressed;
+        public Color bg, card, elevated, ink, muted, border;
+        public Color accent, accentHover, accentPressed;
         public Color ok, warn, err;
         public Color secondaryFill, secondaryHover, secondaryPressed, secondaryBorder, secondaryHoverBorder, secondaryText;
+        public Color inputBg, disabledFill, disabledText;
 
         public static Palette Get(string theme)
         {
             if (theme == "dark")
             {
+                // Obsidian Signal
                 return new Palette
                 {
-                    bg = Color.FromArgb(20, 22, 27),
-                    card = Color.FromArgb(28, 32, 40),
-                    ink = Color.FromArgb(240, 243, 246),
-                    muted = Color.FromArgb(140, 149, 159),
-                    border = Color.FromArgb(48, 54, 61),
-                    accent = Color.FromArgb(37, 99, 235),
-                    accentHover = Color.FromArgb(59, 130, 246),
-                    accentPressed = Color.FromArgb(29, 78, 216),
-                    ok = Color.FromArgb(46, 160, 67),
-                    warn = Color.FromArgb(210, 153, 34),
-                    err = Color.FromArgb(248, 81, 73),
-                    secondaryFill = Color.FromArgb(33, 38, 47),
-                    secondaryHover = Color.FromArgb(46, 53, 65),
-                    secondaryPressed = Color.FromArgb(26, 30, 38),
-                    secondaryBorder = Color.FromArgb(56, 63, 76),
-                    secondaryHoverBorder = Color.FromArgb(99, 110, 130),
-                    secondaryText = Color.FromArgb(226, 232, 240)
+                    bg = Color.FromArgb(15, 17, 21),
+                    card = Color.FromArgb(23, 26, 33),
+                    elevated = Color.FromArgb(30, 35, 45),
+                    ink = Color.FromArgb(243, 244, 246),
+                    muted = Color.FromArgb(139, 149, 165),
+                    border = Color.FromArgb(38, 44, 56),
+                    accent = Color.FromArgb(13, 148, 136),
+                    accentHover = Color.FromArgb(20, 184, 166),
+                    accentPressed = Color.FromArgb(15, 118, 110),
+                    ok = Color.FromArgb(34, 197, 94),
+                    warn = Color.FromArgb(245, 158, 11),
+                    err = Color.FromArgb(239, 68, 68),
+                    secondaryFill = Color.FromArgb(31, 36, 46),
+                    secondaryHover = Color.FromArgb(42, 49, 62),
+                    secondaryPressed = Color.FromArgb(24, 28, 36),
+                    secondaryBorder = Color.FromArgb(50, 58, 74),
+                    secondaryHoverBorder = Color.FromArgb(88, 102, 126),
+                    secondaryText = Color.FromArgb(229, 233, 240),
+                    inputBg = Color.FromArgb(19, 22, 29),
+                    disabledFill = Color.FromArgb(27, 31, 39),
+                    disabledText = Color.FromArgb(95, 104, 120)
                 };
             }
+            // Drafting Paper
             return new Palette
             {
-                bg = Color.FromArgb(246, 248, 250),
+                bg = Color.FromArgb(243, 245, 248),
                 card = Color.White,
-                ink = Color.FromArgb(24, 32, 44),
-                muted = Color.FromArgb(100, 116, 139),
-                border = Color.FromArgb(226, 232, 240),
-                accent = Color.FromArgb(37, 99, 235),
-                accentHover = Color.FromArgb(29, 78, 216),
-                accentPressed = Color.FromArgb(30, 64, 175),
-                ok = Color.FromArgb(16, 185, 129),
+                elevated = Color.FromArgb(233, 237, 243),
+                ink = Color.FromArgb(17, 24, 39),
+                muted = Color.FromArgb(92, 102, 118),
+                border = Color.FromArgb(214, 221, 232),
+                accent = Color.FromArgb(15, 118, 110),
+                accentHover = Color.FromArgb(13, 148, 136),
+                accentPressed = Color.FromArgb(17, 94, 89),
+                ok = Color.FromArgb(22, 163, 74),
                 warn = Color.FromArgb(217, 119, 6),
-                err = Color.FromArgb(239, 68, 68),
+                err = Color.FromArgb(220, 38, 38),
                 secondaryFill = Color.FromArgb(248, 250, 252),
-                secondaryHover = Color.FromArgb(241, 245, 249),
+                secondaryHover = Color.FromArgb(238, 242, 247),
                 secondaryPressed = Color.FromArgb(226, 232, 240),
                 secondaryBorder = Color.FromArgb(203, 213, 225),
                 secondaryHoverBorder = Color.FromArgb(148, 163, 184),
-                secondaryText = Color.FromArgb(30, 41, 59)
+                secondaryText = Color.FromArgb(30, 41, 59),
+                inputBg = Color.White,
+                disabledFill = Color.FromArgb(241, 245, 249),
+                disabledText = Color.FromArgb(148, 163, 184)
             };
+        }
+    }
+
+    public static class UiDraw
+    {
+        public static GraphicsPath RoundRect(Rectangle rect, int r)
+        {
+            var path = new GraphicsPath();
+            if (r <= 0)
+            {
+                path.AddRectangle(rect);
+                return path;
+            }
+            int d = Math.Min(r * 2, Math.Min(rect.Width, rect.Height));
+            if (d <= 0)
+            {
+                path.AddRectangle(rect);
+                return path;
+            }
+            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    public class UiCard : Panel
+    {
+        public int Radius { get; set; }
+        public Color FillColor { get; set; }
+        public Color BorderColor { get; set; }
+
+        public UiCard()
+        {
+            Radius = 10;
+            FillColor = Color.FromArgb(23, 26, 33);
+            BorderColor = Color.FromArgb(38, 44, 56);
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            Color parentBg = (Parent != null) ? Parent.BackColor : BackColor;
+            using (var pb = new SolidBrush(parentBg))
+            {
+                g.FillRectangle(pb, ClientRectangle);
+            }
+
+            var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (var path = UiDraw.RoundRect(rect, Radius))
+            {
+                using (var fb = new SolidBrush(FillColor))
+                {
+                    g.FillPath(fb, path);
+                }
+                if (BorderColor.A > 0)
+                {
+                    using (var pen = new Pen(BorderColor, 1f))
+                    {
+                        g.DrawPath(pen, path);
+                    }
+                }
+            }
+        }
+    }
+
+    public class UiStatusDot : Control
+    {
+        private Color _dotColor = Color.Gray;
+        public Color DotColor
+        {
+            get { return _dotColor; }
+            set { _dotColor = value; Invalidate(); }
+        }
+
+        public UiStatusDot()
+        {
+            Size = new Size(14, 14);
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Color bg = (Parent != null) ? Parent.BackColor : Color.Transparent;
+            if (Parent is UiCard) bg = ((UiCard)Parent).FillColor;
+            using (var b = new SolidBrush(bg))
+            {
+                g.FillRectangle(b, ClientRectangle);
+            }
+            int cx = Width / 2;
+            int cy = Height / 2;
+            using (var halo = new SolidBrush(Color.FromArgb(48, _dotColor)))
+            {
+                g.FillEllipse(halo, cx - 6, cy - 6, 12, 12);
+            }
+            using (var core = new SolidBrush(_dotColor))
+            {
+                g.FillEllipse(core, cx - 3.5f, cy - 3.5f, 7f, 7f);
+            }
         }
     }
 
     public class UiButton : Button
     {
         public int Radius { get; set; }
-        private Color _fill = Color.FromArgb(37, 99, 235);
-        public Color Fill { get { return _fill; } set { _fill = value; BackColor = value; Invalidate(); } }
-        private Color _hover = Color.FromArgb(59, 130, 246);
+        private Color _fill = Color.FromArgb(13, 148, 136);
+        public Color Fill { get { return _fill; } set { _fill = value; Invalidate(); } }
+        private Color _hover = Color.FromArgb(20, 184, 166);
         public Color Hover { get { return _hover; } set { _hover = value; Invalidate(); } }
-        private Color _pressed = Color.FromArgb(29, 78, 216);
+        private Color _pressed = Color.FromArgb(15, 118, 110);
         public Color Pressed { get { return _pressed; } set { _pressed = value; Invalidate(); } }
-        private Color _border = Color.FromArgb(56, 63, 76);
+        private Color _border = Color.FromArgb(50, 58, 74);
         public Color BorderColor { get { return _border; } set { _border = value; Invalidate(); } }
-        private Color _hoverBorder = Color.FromArgb(99, 110, 130);
+        private Color _hoverBorder = Color.FromArgb(88, 102, 126);
         public Color HoverBorderColor { get { return _hoverBorder; } set { _hoverBorder = value; Invalidate(); } }
+        public Color DisabledFill { get; set; }
+        public Color DisabledText { get; set; }
+        public Color DotColor { get; set; }
         public int BorderWidth { get; set; }
 
         private bool _isHover, _isDown;
@@ -137,8 +291,10 @@ namespace AntigravityProxyApp
             BorderWidth = 1;
             FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
-            BackColor = _fill;
             ForeColor = Color.White;
+            DisabledFill = Color.FromArgb(27, 31, 39);
+            DisabledText = Color.FromArgb(95, 104, 120);
+            DotColor = Color.Transparent;
             Cursor = Cursors.Hand;
             DoubleBuffered = true;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
@@ -156,19 +312,19 @@ namespace AntigravityProxyApp
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
-            var bg = _isDown ? _pressed : (_isHover ? _hover : _fill);
-            var bc = _isHover ? _hoverBorder : _border;
-
-            if (Parent != null)
+            Color parentBg = (Parent != null) ? Parent.BackColor : BackColor;
+            if (Parent is UiCard) parentBg = ((UiCard)Parent).FillColor;
+            using (var pb = new SolidBrush(parentBg))
             {
-                using (var pb = new SolidBrush(Parent.BackColor))
-                {
-                    g.FillRectangle(pb, ClientRectangle);
-                }
+                g.FillRectangle(pb, ClientRectangle);
             }
 
+            Color bg = !Enabled ? DisabledFill : (_isDown ? _pressed : (_isHover ? _hover : _fill));
+            Color bc = !Enabled ? _border : (_isHover ? _hoverBorder : _border);
+            Color fg = !Enabled ? DisabledText : ForeColor;
+
             var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (var path = GetRoundPath(rect, Radius))
+            using (var path = UiDraw.RoundRect(rect, Radius))
             {
                 using (var brush = new SolidBrush(bg))
                 {
@@ -183,21 +339,23 @@ namespace AntigravityProxyApp
                 }
             }
 
-            TextRenderer.DrawText(g, Text, Font, ClientRectangle, ForeColor,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.WordEllipsis);
-        }
-
-        private static GraphicsPath GetRoundPath(Rectangle rect, int r)
-        {
-            var path = new GraphicsPath();
-            if (r <= 0) { path.AddRectangle(rect); return path; }
-            int d = r * 2;
-            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-            path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
-            path.CloseFigure();
-            return path;
+            if (DotColor.A > 0)
+            {
+                int dotX = 12;
+                int dotY = (Height - 8) / 2;
+                using (var db = new SolidBrush(DotColor))
+                {
+                    g.FillEllipse(db, dotX, dotY, 8, 8);
+                }
+                var textRect = new Rectangle(24, 0, Width - 30, Height);
+                TextRenderer.DrawText(g, Text, Font, textRect, fg,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.WordEllipsis);
+            }
+            else
+            {
+                TextRenderer.DrawText(g, Text, Font, ClientRectangle, fg,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.WordEllipsis);
+            }
         }
     }
 
@@ -214,9 +372,9 @@ namespace AntigravityProxyApp
             DrawMode = DrawMode.OwnerDrawFixed;
             FlatStyle = FlatStyle.Flat;
             ItemHeight = 22;
-            ItemBackColor = Color.FromArgb(33, 38, 47);
-            ItemForeColor = Color.FromArgb(240, 243, 246);
-            SelectedItemBackColor = Color.FromArgb(37, 99, 235);
+            ItemBackColor = Color.FromArgb(31, 36, 46);
+            ItemForeColor = Color.FromArgb(243, 244, 246);
+            SelectedItemBackColor = Color.FromArgb(13, 148, 136);
             SelectedItemForeColor = Color.White;
         }
 
@@ -234,15 +392,64 @@ namespace AntigravityProxyApp
             }
 
             string text = Items[e.Index] != null ? Items[e.Index].ToString() : "";
-            using (var bText = new SolidBrush(fg))
-            using (var sf = new StringFormat { LineAlignment = StringAlignment.Center })
+            var rect = new Rectangle(e.Bounds.X + 6, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 10), e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, text, Font, rect, fg,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    public class UiListBox : ListBox
+    {
+        public Color ItemBackColor { get; set; }
+        public Color ItemForeColor { get; set; }
+        public Color SelectedItemBackColor { get; set; }
+        public Color SelectedItemForeColor { get; set; }
+        public Color SubTextColor { get; set; }
+
+        public UiListBox()
+        {
+            DrawMode = DrawMode.OwnerDrawFixed;
+            BorderStyle = BorderStyle.None;
+            ItemHeight = 40;
+            ItemBackColor = Color.FromArgb(23, 26, 33);
+            ItemForeColor = Color.FromArgb(243, 244, 246);
+            SelectedItemBackColor = Color.FromArgb(30, 48, 52);
+            SelectedItemForeColor = Color.White;
+            SubTextColor = Color.FromArgb(139, 149, 165);
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= Items.Count) return;
+
+            bool isSelected = (e.State & DrawItemState.Selected) != 0;
+            Color bg = isSelected ? SelectedItemBackColor : ItemBackColor;
+            Color fg = isSelected ? SelectedItemForeColor : ItemForeColor;
+            Color subFg = isSelected ? Color.FromArgb(210, 235, 232) : SubTextColor;
+
+            using (var b = new SolidBrush(bg))
             {
-                float x = (float)(e.Bounds.X + 6);
-                float y = (float)e.Bounds.Y;
-                float w = (float)Math.Max(0, e.Bounds.Width - 6);
-                float h = (float)e.Bounds.Height;
-                var rect = new RectangleF(x, y, w, h);
-                e.Graphics.DrawString(text, Font, bText, rect, sf);
+                e.Graphics.FillRectangle(b, e.Bounds);
+            }
+
+            string raw = Items[e.Index] != null ? Items[e.Index].ToString() : "";
+            string[] parts = raw.Split(new[] { '\n' }, 2);
+            string title = parts[0];
+            string sub = parts.Length > 1 ? parts[1] : "";
+
+            var rTitle = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 4, Math.Max(0, e.Bounds.Width - 16), 18);
+            var rSub = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 21, Math.Max(0, e.Bounds.Width - 16), 15);
+
+            using (var fTitle = new Font("Segoe UI Semibold", 9f))
+            using (var fSub = new Font("Segoe UI", 8f))
+            {
+                TextRenderer.DrawText(e.Graphics, title, fTitle, rTitle, fg,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                if (!string.IsNullOrEmpty(sub))
+                {
+                    TextRenderer.DrawText(e.Graphics, sub, fSub, rSub, subFg,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                }
             }
         }
     }
@@ -262,11 +469,35 @@ namespace AntigravityProxyApp
         public string Country { get; set; }
         public string City { get; set; }
         public int PingMs { get; set; }
+        public string Note { get; set; }
         public string Error { get; set; }
+    }
+
+    public class ServiceSnapshot
+    {
+        public bool XrayHttpUp { get; set; }
+        public bool XraySocksUp { get; set; }
+        public int XrayPid { get; set; }
+        public bool SysProxyOn { get; set; }
+        public string SysProxyServer { get; set; }
+        public bool AgdnsUp { get; set; }
+        public bool? PatchApplied { get; set; }
+        public string AntigravityPath { get; set; }
+        public bool AntigravityRunning { get; set; }
+        public bool LanguageServerRunning { get; set; }
+        public bool TelegramRunning { get; set; }
+        public bool OpenCodeRunning { get; set; }
+        public bool AgUnlockerConflict { get; set; }
     }
 
     public class AppCore
     {
+        [DllImport("wininet.dll", SetLastError = true)]
+        private static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+
+        private const int INTERNET_OPTION_SETTINGS_CHANGED = 39;
+        private const int INTERNET_OPTION_REFRESH = 37;
+
         public static string AppRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AntigravityProxy");
         public static string XrayDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XrayNL");
         public static string XrayCfg = Path.Combine(XrayDir, "config.json");
@@ -293,7 +524,8 @@ namespace AntigravityProxyApp
                 {
                     string json = File.ReadAllText(SettingsFile, Encoding.UTF8);
                     var ser = new JavaScriptSerializer();
-                    s = ser.Deserialize<AppSettings>(json);
+                    var loaded = ser.Deserialize<AppSettings>(json);
+                    if (loaded != null) s = loaded;
                 }
                 catch (Exception ex) { Log("LoadSettings: " + ex.Message); }
             }
@@ -309,10 +541,17 @@ namespace AntigravityProxyApp
                 {
                     s.proxies = new List<ProxyItem>
                     {
-                        new ProxyItem { name = "Мой прокси", host = "", port = "8000", user = "", pass = "" }
+                        new ProxyItem { name = "Мой прокси", protocol = "http", host = "", port = "8000", user = "", pass = "" }
                     };
                 }
             }
+
+            foreach (var px in s.proxies)
+            {
+                if (px != null) px.protocol = px.NormalizedProtocol();
+            }
+
+            if (s.customApps == null) s.customApps = new List<CustomAppItem>();
 
             if (s.activeProxyIndex < 0 || s.activeProxyIndex >= s.proxies.Count)
             {
@@ -330,7 +569,7 @@ namespace AntigravityProxyApp
                 if (!Directory.Exists(AppRoot)) Directory.CreateDirectory(AppRoot);
                 var ser = new JavaScriptSerializer();
                 string json = ser.Serialize(s);
-                File.WriteAllText(SettingsFile, json, Encoding.UTF8);
+                File.WriteAllText(SettingsFile, json, new UTF8Encoding(false));
             }
             catch (Exception ex) { Log("SaveSettings: " + ex.Message); }
         }
@@ -343,40 +582,45 @@ namespace AntigravityProxyApp
                 string json = File.ReadAllText(XrayCfg, Encoding.UTF8);
                 var ser = new JavaScriptSerializer();
                 var dict = ser.Deserialize<Dictionary<string, object>>(json);
-                if (!dict.ContainsKey("outbounds")) return null;
+                if (dict == null || !dict.ContainsKey("outbounds")) return null;
                 var outbounds = dict["outbounds"] as object[];
                 if (outbounds == null) return null;
                 foreach (Dictionary<string, object> ob in outbounds)
                 {
-                    if (ob.ContainsKey("protocol") && ob["protocol"].ToString() == "http" && ob.ContainsKey("settings"))
+                    if (!ob.ContainsKey("protocol") || !ob.ContainsKey("settings")) continue;
+                    string proto = (ob["protocol"] ?? "").ToString().ToLowerInvariant();
+                    if (proto != "http" && proto != "socks") continue;
+
+                    var settings = ob["settings"] as Dictionary<string, object>;
+                    if (settings != null && settings.ContainsKey("servers"))
                     {
-                        var settings = ob["settings"] as Dictionary<string, object>;
-                        if (settings != null && settings.ContainsKey("servers"))
+                        var servers = settings["servers"] as object[];
+                        if (servers != null && servers.Length > 0)
                         {
-                            var servers = settings["servers"] as object[];
-                            if (servers != null && servers.Length > 0)
+                            var srv = servers[0] as Dictionary<string, object>;
+                            string u = "", p = "";
+                            if (srv != null && srv.ContainsKey("users"))
                             {
-                                var srv = servers[0] as Dictionary<string, object>;
-                                string u = "", p = "";
-                                if (srv.ContainsKey("users"))
+                                var users = srv["users"] as object[];
+                                if (users != null && users.Length > 0)
                                 {
-                                    var users = srv["users"] as object[];
-                                    if (users != null && users.Length > 0)
+                                    var usr = users[0] as Dictionary<string, object>;
+                                    if (usr != null)
                                     {
-                                        var usr = users[0] as Dictionary<string, object>;
-                                        if (usr.ContainsKey("user")) u = usr["user"].ToString();
-                                        if (usr.ContainsKey("pass")) p = usr["pass"].ToString();
+                                        if (usr.ContainsKey("user") && usr["user"] != null) u = usr["user"].ToString();
+                                        if (usr.ContainsKey("pass") && usr["pass"] != null) p = usr["pass"].ToString();
                                     }
                                 }
-                                return new ProxyItem
-                                {
-                                    name = "Основной",
-                                    host = srv.ContainsKey("address") ? srv["address"].ToString() : "",
-                                    port = srv.ContainsKey("port") ? srv["port"].ToString() : "8000",
-                                    user = u,
-                                    pass = p
-                                };
                             }
+                            return new ProxyItem
+                            {
+                                name = "Основной",
+                                protocol = proto,
+                                host = (srv != null && srv.ContainsKey("address") && srv["address"] != null) ? srv["address"].ToString() : "",
+                                port = (srv != null && srv.ContainsKey("port") && srv["port"] != null) ? srv["port"].ToString() : "8000",
+                                user = u,
+                                pass = p
+                            };
                         }
                     }
                 }
@@ -385,29 +629,32 @@ namespace AntigravityProxyApp
             return null;
         }
 
-        public static void WriteXrayConfig(string host, string port, string user, string pass)
+        public static void WriteXrayConfig(string host, string port, string user, string pass, string protocol = "http")
         {
             int pt = 8000;
             int.TryParse(port, out pt);
-            var usersList = new List<object>();
-            if (!string.IsNullOrEmpty(user))
-            {
-                usersList.Add(new Dictionary<string, object> { { "user", user }, { "pass", pass ?? "" } });
-            }
+            string proto = (!string.IsNullOrEmpty(protocol) && protocol.Trim().ToLowerInvariant().StartsWith("socks")) ? "socks" : "http";
 
             var server = new Dictionary<string, object>
             {
                 { "address", host },
-                { "port", pt },
-                { "users", usersList }
+                { "port", pt }
             };
+
+            if (!string.IsNullOrEmpty(user))
+            {
+                server["users"] = new object[]
+                {
+                    new Dictionary<string, object> { { "user", user }, { "pass", pass ?? "" } }
+                };
+            }
 
             var outbounds = new List<object>
             {
                 new Dictionary<string, object>
                 {
                     { "tag", "proxy" },
-                    { "protocol", "http" },
+                    { "protocol", proto },
                     { "settings", new Dictionary<string, object> { { "servers", new object[] { server } } } }
                 },
                 new Dictionary<string, object>
@@ -478,14 +725,14 @@ namespace AntigravityProxyApp
             }
         }
 
-        public static bool TestPort(int port = 10809)
+        public static bool TestPort(int port = 10809, int timeoutMs = 400)
         {
             try
             {
                 using (var client = new TcpClient())
                 {
                     var ar = client.BeginConnect("127.0.0.1", port, null, null);
-                    bool ok = ar.AsyncWaitHandle.WaitOne(400);
+                    bool ok = ar.AsyncWaitHandle.WaitOne(timeoutMs);
                     bool conn = ok && client.Connected;
                     return conn;
                 }
@@ -499,9 +746,9 @@ namespace AntigravityProxyApp
             {
                 foreach (var p in Process.GetProcessesByName("xray"))
                 {
-                    try { p.Kill(); } catch { }
+                    try { p.Kill(); p.WaitForExit(1500); } catch { }
                 }
-                System.Threading.Thread.Sleep(500);
+                System.Threading.Thread.Sleep(350);
 
                 if (!File.Exists(XrayExe)) return false;
                 var psi = new ProcessStartInfo
@@ -523,6 +770,46 @@ namespace AntigravityProxyApp
             }
             catch (Exception ex) { Log("RestartXray: " + ex.Message); }
             return false;
+        }
+
+        public static void StartWithProxyEnv(string fileName, string arguments = "", string workingDir = null)
+        {
+            string bypass = "localhost,127.0.0.1,::1," + Environment.MachineName;
+            string httpProxy = "http://127.0.0.1:10809";
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments ?? "",
+                UseShellExecute = false
+            };
+
+            if (!string.IsNullOrEmpty(workingDir) && Directory.Exists(workingDir))
+            {
+                psi.WorkingDirectory = workingDir;
+            }
+            else
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(fileName);
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                        psi.WorkingDirectory = dir;
+                }
+                catch { }
+            }
+
+            psi.EnvironmentVariables["AG_LS_PROXY"] = httpProxy;
+            psi.EnvironmentVariables["HTTP_PROXY"] = httpProxy;
+            psi.EnvironmentVariables["HTTPS_PROXY"] = httpProxy;
+            psi.EnvironmentVariables["ALL_PROXY"] = httpProxy;
+            psi.EnvironmentVariables["NO_PROXY"] = bypass;
+            psi.EnvironmentVariables["http_proxy"] = httpProxy;
+            psi.EnvironmentVariables["https_proxy"] = httpProxy;
+            psi.EnvironmentVariables["all_proxy"] = httpProxy;
+            psi.EnvironmentVariables["no_proxy"] = bypass;
+
+            Process.Start(psi);
         }
 
         private static DirectInfoResult QueryDirectProxyEndpoint(string url, IWebProxy proxy, int timeoutMs)
@@ -564,12 +851,91 @@ namespace AntigravityProxyApp
                         PingMs = (int)sw.ElapsedMilliseconds
                     };
                 }
-                return new DirectInfoResult { Ok = false, Error = "Empty response" };
+                return new DirectInfoResult { Ok = false, Error = "Пустой ответ сервера" };
             }
         }
 
-        public static DirectInfoResult CheckDirectProxyInfo(string host, string port, string user, string pass)
+        public static DirectInfoResult CheckSocks5Direct(string host, string port, string user, string pass)
         {
+            try
+            {
+                int pt = 1080;
+                int.TryParse(port, out pt);
+                var sw = Stopwatch.StartNew();
+                using (var client = new TcpClient())
+                {
+                    var ar = client.BeginConnect(host, pt, null, null);
+                    if (!ar.AsyncWaitHandle.WaitOne(7000) || !client.Connected)
+                    {
+                        return new DirectInfoResult { Ok = false, Error = "Таймаут TCP-подключения к SOCKS5" };
+                    }
+                    client.EndConnect(ar);
+                    client.ReceiveTimeout = 7000;
+                    client.SendTimeout = 7000;
+
+                    using (var ns = client.GetStream())
+                    {
+                        bool hasAuth = !string.IsNullOrEmpty(user);
+                        byte[] greeting = hasAuth ? new byte[] { 0x05, 0x02, 0x00, 0x02 } : new byte[] { 0x05, 0x01, 0x00 };
+                        ns.Write(greeting, 0, greeting.Length);
+
+                        byte[] resp = new byte[2];
+                        int r = ns.Read(resp, 0, 2);
+                        if (r < 2 || resp[0] != 0x05)
+                            return new DirectInfoResult { Ok = false, Error = "Сервер не отвечает по SOCKS5" };
+
+                        if (resp[1] == 0xFF)
+                            return new DirectInfoResult { Ok = false, Error = "SOCKS5 отклонил метод авторизации" };
+
+                        if (resp[1] == 0x02)
+                        {
+                            if (!hasAuth)
+                                return new DirectInfoResult { Ok = false, Error = "SOCKS5 требует логин и пароль" };
+
+                            byte[] uBytes = Encoding.UTF8.GetBytes(user);
+                            byte[] pBytes = Encoding.UTF8.GetBytes(pass ?? "");
+                            if (uBytes.Length > 255 || pBytes.Length > 255)
+                                return new DirectInfoResult { Ok = false, Error = "Слишком длинный логин или пароль" };
+
+                            byte[] auth = new byte[3 + uBytes.Length + pBytes.Length];
+                            auth[0] = 0x01;
+                            auth[1] = (byte)uBytes.Length;
+                            Buffer.BlockCopy(uBytes, 0, auth, 2, uBytes.Length);
+                            auth[2 + uBytes.Length] = (byte)pBytes.Length;
+                            Buffer.BlockCopy(pBytes, 0, auth, 3 + uBytes.Length, pBytes.Length);
+                            ns.Write(auth, 0, auth.Length);
+
+                            byte[] authResp = new byte[2];
+                            int arRead = ns.Read(authResp, 0, 2);
+                            if (arRead < 2 || authResp[1] != 0x00)
+                                return new DirectInfoResult { Ok = false, Error = "Неверный логин или пароль SOCKS5" };
+                        }
+
+                        sw.Stop();
+                        return new DirectInfoResult
+                        {
+                            Ok = true,
+                            Ip = host,
+                            Note = "SOCKS5 рукопожатие успешно",
+                            PingMs = (int)sw.ElapsedMilliseconds
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                string msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                return new DirectInfoResult { Ok = false, Error = msg };
+            }
+        }
+
+        public static DirectInfoResult CheckDirectProxyInfo(string host, string port, string user, string pass, string protocol = "http")
+        {
+            if (!string.IsNullOrEmpty(protocol) && protocol.Trim().ToLowerInvariant().StartsWith("socks"))
+            {
+                return CheckSocks5Direct(host, port, user, pass);
+            }
+
             try
             {
                 int pt = 8000;
@@ -580,7 +946,6 @@ namespace AntigravityProxyApp
                     proxy.Credentials = new NetworkCredential(user, pass ?? "");
                 }
 
-                // 1. ipinfo.io (HTTPS)
                 try
                 {
                     return QueryDirectProxyEndpoint("https://ipinfo.io/json", proxy, 9000);
@@ -588,7 +953,6 @@ namespace AntigravityProxyApp
                 catch (Exception ex1)
                 {
                     Log("DirectInfo ipinfo.io: " + ex1.Message);
-                    // 2. ip-api.com (HTTP - reliable fallback)
                     try
                     {
                         return QueryDirectProxyEndpoint("http://ip-api.com/json", proxy, 9000);
@@ -596,7 +960,6 @@ namespace AntigravityProxyApp
                     catch (Exception ex2)
                     {
                         Log("DirectInfo ip-api.com: " + ex2.Message);
-                        // 3. api.ipify.org
                         return QueryDirectProxyEndpoint("https://api.ipify.org?format=json", proxy, 9000);
                     }
                 }
@@ -630,7 +993,6 @@ namespace AntigravityProxyApp
                 }
 
                 string nocache = Guid.NewGuid().ToString("N");
-                // 1 MB target with rolling 3-4s measurement limit
                 string url = "https://speed.cloudflare.com/__down?bytes=1048576&nocache=" + nocache;
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 req.Proxy = proxy;
@@ -652,7 +1014,6 @@ namespace AntigravityProxyApp
                         byte[] buf = new byte[32768];
                         int total = 0;
                         int read = 0;
-                        // Stream read: max 3.5 seconds or 1MB, whichever comes first
                         while (swDl.ElapsedMilliseconds < 3500 && (read = stream.Read(buf, 0, buf.Length)) > 0)
                         {
                             total += read;
@@ -672,8 +1033,9 @@ namespace AntigravityProxyApp
             }
         }
 
-        public static bool TestSystemProxy()
+        public static bool TestSystemProxy(out string serverOut)
         {
+            serverOut = "";
             try
             {
                 using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings"))
@@ -681,7 +1043,31 @@ namespace AntigravityProxyApp
                     if (key == null) return false;
                     var enable = key.GetValue("ProxyEnable");
                     var server = key.GetValue("ProxyServer") as string;
+                    serverOut = server ?? "";
                     return (enable is int && (int)enable == 1) && (server != null && server.Contains("10809"));
+                }
+            }
+            catch { return false; }
+        }
+
+        public static bool TestSystemProxy()
+        {
+            string dummy;
+            return TestSystemProxy(out dummy);
+        }
+
+        public static bool IsAnySystemProxyEnabled(out string serverOut)
+        {
+            serverOut = "";
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings"))
+                {
+                    if (key == null) return false;
+                    var enable = key.GetValue("ProxyEnable");
+                    var server = key.GetValue("ProxyServer") as string;
+                    serverOut = server ?? "";
+                    return (enable is int && (int)enable == 1);
                 }
             }
             catch { return false; }
@@ -705,8 +1091,45 @@ namespace AntigravityProxyApp
                         key.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
                     }
                 }
+                // Мгновенно уведомляем WinINet и приложения об изменении настроек прокси
+                InternetSetOption(IntPtr.Zero, INTERNET_OPTION_SETTINGS_CHANGED, IntPtr.Zero, 0);
+                InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
+            }
+            catch (Exception ex) { Log("SetSystemProxy: " + ex.Message); }
+        }
+
+        public static ServiceSnapshot CollectServices()
+        {
+            var snap = new ServiceSnapshot();
+            snap.XrayHttpUp = TestPort(10809, 250);
+            snap.XraySocksUp = TestPort(10808, 250);
+            snap.AgdnsUp = TestPort(53, 250);
+
+            try
+            {
+                var xrays = Process.GetProcessesByName("xray");
+                if (xrays.Length > 0) snap.XrayPid = xrays[0].Id;
             }
             catch { }
+
+            string srv;
+            snap.SysProxyOn = IsAnySystemProxyEnabled(out srv);
+            snap.SysProxyServer = srv;
+
+            snap.AntigravityPath = FindAntigravityApp();
+            if (!string.IsNullOrEmpty(snap.AntigravityPath))
+            {
+                string ls = FindLanguageServer(snap.AntigravityPath);
+                snap.PatchApplied = TestPatched(ls);
+            }
+
+            try { snap.AntigravityRunning = Process.GetProcessesByName("Antigravity").Length > 0; } catch { }
+            try { snap.LanguageServerRunning = Process.GetProcessesByName("language_server").Length > 0; } catch { }
+            try { snap.TelegramRunning = Process.GetProcessesByName("Telegram").Length > 0; } catch { }
+            try { snap.OpenCodeRunning = Process.GetProcessesByName("OpenCode").Length > 0 || Process.GetProcessesByName("opencode").Length > 0; } catch { }
+            try { snap.AgUnlockerConflict = Process.GetProcessesByName("ag_dns").Length > 0; } catch { }
+
+            return snap;
         }
 
         public static string FindAntigravityApp()
@@ -885,7 +1308,7 @@ namespace AntigravityProxyApp
         private int _currentIdx;
         private Palette _p;
 
-        private UiComboBox cbList;
+        private UiComboBox cbList, cbProto;
         private UiButton btnAdd, btnDel, btnActive, btnTest, btnSave, btnCancel;
         private TextBox tbName, tbH, tbPt, tbU, tbPw;
         private RadioButton rbDark, rbLight;
@@ -908,7 +1331,7 @@ namespace AntigravityProxyApp
             _currentIdx = _localActiveIdx;
 
             Text = "Настройки";
-            ClientSize = new Size(460, 500);
+            ClientSize = new Size(476, 516);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -922,59 +1345,161 @@ namespace AntigravityProxyApp
             LoadFields(_currentIdx);
         }
 
+        private void StyleSec(UiButton b, Color? hoverBorder = null)
+        {
+            b.Fill = _p.secondaryFill;
+            b.Hover = _p.secondaryHover;
+            b.Pressed = _p.secondaryPressed;
+            b.BorderColor = _p.secondaryBorder;
+            b.HoverBorderColor = hoverBorder ?? _p.secondaryHoverBorder;
+            b.BorderWidth = 1;
+            b.ForeColor = _p.secondaryText;
+            b.DisabledFill = _p.disabledFill;
+            b.DisabledText = _p.disabledText;
+        }
+
         private void BuildControls()
         {
-            var lblTitle = new Label { Text = "Настройки прокси", Location = new Point(18, 14), Size = new Size(200, 22), ForeColor = _p.ink, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 10.5f) };
+            var lblTitle = new Label
+            {
+                Text = "Профили прокси",
+                Location = new Point(20, 16),
+                Size = new Size(220, 24),
+                ForeColor = _p.ink,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI Semibold", 11f)
+            };
             Controls.Add(lblTitle);
 
-            cbList = new UiComboBox { Location = new Point(18, 42), Size = new Size(236, 28), Font = new Font("Segoe UI", 9f), BackColor = _p.secondaryFill, ForeColor = _p.ink, ItemBackColor = _p.secondaryFill, ItemForeColor = _p.ink, SelectedItemBackColor = _p.accent, SelectedItemForeColor = Color.White };
+            cbList = new UiComboBox
+            {
+                Location = new Point(20, 48),
+                Size = new Size(248, 28),
+                Font = new Font("Segoe UI", 9f),
+                BackColor = _p.elevated,
+                ForeColor = _p.ink,
+                ItemBackColor = _p.elevated,
+                ItemForeColor = _p.ink,
+                SelectedItemBackColor = _p.accent,
+                SelectedItemForeColor = Color.White
+            };
             Controls.Add(cbList);
 
-            btnAdd = new UiButton { Text = "+ Добавить", Location = new Point(262, 41), Size = new Size(96, 28), Radius = 6, Fill = _p.secondaryFill, Hover = _p.secondaryHover, Pressed = _p.secondaryPressed, BorderColor = _p.secondaryBorder, HoverBorderColor = _p.accent, BorderWidth = 1, ForeColor = _p.secondaryText };
+            btnAdd = new UiButton { Text = "+ Добавить", Location = new Point(276, 47), Size = new Size(96, 28), Radius = 6 };
+            StyleSec(btnAdd, _p.accent);
             Controls.Add(btnAdd);
 
-            btnDel = new UiButton { Text = "Удалить", Location = new Point(366, 41), Size = new Size(76, 28), Radius = 6, Fill = _p.secondaryFill, Hover = _p.secondaryHover, Pressed = _p.secondaryPressed, BorderColor = _p.secondaryBorder, HoverBorderColor = _p.err, BorderWidth = 1, ForeColor = _p.secondaryText };
+            btnDel = new UiButton { Text = "Удалить", Location = new Point(378, 47), Size = new Size(78, 28), Radius = 6 };
+            StyleSec(btnDel, _p.err);
             Controls.Add(btnDel);
 
-            Controls.Add(new Label { Text = "Имя профиля:", Location = new Point(18, 76), Size = new Size(200, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
-            tbName = new TextBox { Location = new Point(18, 94), Size = new Size(424, 24), BackColor = _p.card, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
-            Controls.Add(tbName);
+            var card = new UiCard
+            {
+                Location = new Point(20, 88),
+                Size = new Size(436, 252),
+                FillColor = _p.card,
+                BorderColor = _p.border,
+                Radius = 10
+            };
+            Controls.Add(card);
 
-            Controls.Add(new Label { Text = "Сервер / Хост:", Location = new Point(18, 124), Size = new Size(120, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
-            tbH = new TextBox { Location = new Point(18, 142), Size = new Size(260, 24), BackColor = _p.card, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
-            Controls.Add(tbH);
+            card.Controls.Add(new Label { Text = "Имя профиля", Location = new Point(16, 14), Size = new Size(200, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
+            tbName = new TextBox { Location = new Point(16, 33), Size = new Size(286, 24), BackColor = _p.inputBg, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
+            card.Controls.Add(tbName);
 
-            Controls.Add(new Label { Text = "Порт:", Location = new Point(290, 124), Size = new Size(60, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
-            tbPt = new TextBox { Location = new Point(290, 142), Size = new Size(152, 24), BackColor = _p.card, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
-            Controls.Add(tbPt);
+            card.Controls.Add(new Label { Text = "Протокол", Location = new Point(312, 14), Size = new Size(100, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
+            cbProto = new UiComboBox
+            {
+                Location = new Point(312, 32),
+                Size = new Size(108, 26),
+                Font = new Font("Segoe UI", 9f),
+                BackColor = _p.elevated,
+                ForeColor = _p.ink,
+                ItemBackColor = _p.elevated,
+                ItemForeColor = _p.ink,
+                SelectedItemBackColor = _p.accent,
+                SelectedItemForeColor = Color.White
+            };
+            cbProto.Items.Add("HTTP");
+            cbProto.Items.Add("SOCKS5");
+            card.Controls.Add(cbProto);
 
-            Controls.Add(new Label { Text = "Логин:", Location = new Point(18, 172), Size = new Size(120, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
-            tbU = new TextBox { Location = new Point(18, 190), Size = new Size(260, 24), BackColor = _p.card, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
-            Controls.Add(tbU);
+            card.Controls.Add(new Label { Text = "Сервер / Хост", Location = new Point(16, 68), Size = new Size(140, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
+            tbH = new TextBox { Location = new Point(16, 87), Size = new Size(286, 24), BackColor = _p.inputBg, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f) };
+            card.Controls.Add(tbH);
 
-            Controls.Add(new Label { Text = "Пароль:", Location = new Point(290, 172), Size = new Size(60, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
-            tbPw = new TextBox { Location = new Point(290, 190), Size = new Size(152, 24), UseSystemPasswordChar = true, BackColor = _p.card, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
-            Controls.Add(tbPw);
+            card.Controls.Add(new Label { Text = "Порт", Location = new Point(312, 68), Size = new Size(80, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
+            tbPt = new TextBox { Location = new Point(312, 87), Size = new Size(108, 24), BackColor = _p.inputBg, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f) };
+            card.Controls.Add(tbPt);
 
-            btnActive = new UiButton { Text = "Сделать активным", Location = new Point(18, 226), Size = new Size(200, 32), Radius = 6 };
-            Controls.Add(btnActive);
+            card.Controls.Add(new Label { Text = "Логин", Location = new Point(16, 122), Size = new Size(140, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
+            tbU = new TextBox { Location = new Point(16, 141), Size = new Size(196, 24), BackColor = _p.inputBg, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
+            card.Controls.Add(tbU);
 
-            btnTest = new UiButton { Text = "↻ Проверить этот прокси", Location = new Point(226, 226), Size = new Size(216, 32), Radius = 6, Fill = _p.secondaryFill, Hover = _p.secondaryHover, Pressed = _p.secondaryPressed, BorderColor = _p.secondaryBorder, HoverBorderColor = _p.secondaryHoverBorder, BorderWidth = 1, ForeColor = _p.secondaryText };
-            Controls.Add(btnTest);
+            card.Controls.Add(new Label { Text = "Пароль", Location = new Point(224, 122), Size = new Size(100, 16), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) });
+            tbPw = new TextBox { Location = new Point(224, 141), Size = new Size(196, 24), UseSystemPasswordChar = true, BackColor = _p.inputBg, ForeColor = _p.ink, BorderStyle = BorderStyle.FixedSingle };
+            card.Controls.Add(tbPw);
 
-            Controls.Add(new Label { Text = "Тема оформления", Location = new Point(18, 270), Size = new Size(200, 20), ForeColor = _p.ink, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 9.5f) });
-            rbDark = new RadioButton { Text = "Тёмная", Location = new Point(20, 296), Size = new Size(100, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
-            rbLight = new RadioButton { Text = "Светлая", Location = new Point(130, 296), Size = new Size(100, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
+            btnActive = new UiButton { Text = "Сделать активным", Location = new Point(16, 180), Size = new Size(196, 32), Radius = 6 };
+            card.Controls.Add(btnActive);
+
+            btnTest = new UiButton { Text = "Проверить соединение", Location = new Point(224, 180), Size = new Size(196, 32), Radius = 6 };
+            StyleSec(btnTest);
+            card.Controls.Add(btnTest);
+
+            lblNote = new Label
+            {
+                Text = "Проверка выполняется напрямую и не затрагивает активный Xray.",
+                Location = new Point(16, 218),
+                Size = new Size(404, 28),
+                ForeColor = _p.muted,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 8.25f)
+            };
+            card.Controls.Add(lblNote);
+
+            var themeCard = new UiCard
+            {
+                Location = new Point(20, 352),
+                Size = new Size(436, 76),
+                FillColor = _p.card,
+                BorderColor = _p.border,
+                Radius = 10
+            };
+            Controls.Add(themeCard);
+
+            themeCard.Controls.Add(new Label
+            {
+                Text = "Тема оформления",
+                Location = new Point(16, 12),
+                Size = new Size(200, 20),
+                ForeColor = _p.ink,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI Semibold", 9.5f)
+            });
+            rbDark = new RadioButton { Text = "Тёмная", Location = new Point(18, 40), Size = new Size(110, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
+            rbLight = new RadioButton { Text = "Светлая", Location = new Point(140, 40), Size = new Size(110, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
             if (_settings.theme == "dark") rbDark.Checked = true; else rbLight.Checked = true;
-            Controls.Add(rbDark); Controls.Add(rbLight);
+            themeCard.Controls.Add(rbDark);
+            themeCard.Controls.Add(rbLight);
 
-            lblNote = new Label { Text = "Проверка прокси не влияет на активное соединение Xray.", Location = new Point(18, 330), Size = new Size(424, 44), ForeColor = _p.muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 8.5f) };
-            Controls.Add(lblNote);
-
-            btnSave = new UiButton { Text = "Сохранить", Location = new Point(18, 444), Size = new Size(130, 38), Radius = 7, Fill = _p.accent, Hover = _p.accentHover, Pressed = _p.accentPressed, BorderWidth = 0, ForeColor = Color.White };
+            btnSave = new UiButton
+            {
+                Text = "Сохранить изменения",
+                Location = new Point(20, 452),
+                Size = new Size(184, 40),
+                Radius = 7,
+                Fill = _p.accent,
+                Hover = _p.accentHover,
+                Pressed = _p.accentPressed,
+                BorderWidth = 0,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI Semibold", 9.5f)
+            };
             Controls.Add(btnSave);
 
-            btnCancel = new UiButton { Text = "Отмена", Location = new Point(158, 444), Size = new Size(110, 38), Radius = 7, Fill = _p.secondaryFill, Hover = _p.secondaryHover, Pressed = _p.secondaryPressed, BorderColor = _p.secondaryBorder, HoverBorderColor = _p.secondaryHoverBorder, BorderWidth = 1, ForeColor = _p.secondaryText };
+            btnCancel = new UiButton { Text = "Отмена", Location = new Point(214, 452), Size = new Size(110, 40), Radius = 7 };
+            StyleSec(btnCancel);
             Controls.Add(btnCancel);
 
             cbList.SelectedIndexChanged += (s, e) =>
@@ -990,14 +1515,14 @@ namespace AntigravityProxyApp
             btnAdd.Click += (s, e) =>
             {
                 SaveFields();
-                var newItem = new ProxyItem { name = "Прокси " + (_localProxies.Count + 1), host = "", port = "8000" };
+                var newItem = new ProxyItem { name = "Прокси " + (_localProxies.Count + 1), protocol = "http", host = "", port = "8000" };
                 _localProxies.Add(newItem);
                 _currentIdx = _localProxies.Count - 1;
                 RefreshList(_currentIdx);
                 LoadFields(_currentIdx);
                 tbName.Focus();
                 tbName.SelectAll();
-                lblNote.Text = "Добавлен новый профиль. Заполните реквизиты и нажмите «Сохранить».";
+                lblNote.Text = "Новый профиль создан. Заполните поля и сохраните изменения.";
                 lblNote.ForeColor = _p.muted;
             };
 
@@ -1005,7 +1530,7 @@ namespace AntigravityProxyApp
             {
                 if (_localProxies.Count <= 1)
                 {
-                    MessageBox.Show("Нельзя удалить единственный прокси.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show("Нельзя удалить единственный профиль.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 int rem = _currentIdx;
@@ -1025,7 +1550,7 @@ namespace AntigravityProxyApp
                 _localActiveIdx = _currentIdx;
                 RefreshList(_currentIdx);
                 UpdateActiveButton(_currentIdx);
-                lblNote.Text = string.Format("Прокси «{0}» выбран активным (нажмите «Сохранить» для применения).", _localProxies[_currentIdx].name);
+                lblNote.Text = string.Format("«{0}» выбран активным. Нажмите «Сохранить изменения».", _localProxies[_currentIdx].name);
                 lblNote.ForeColor = _p.accent;
             };
 
@@ -1041,26 +1566,35 @@ namespace AntigravityProxyApp
                 }
                 btnTest.Enabled = false;
                 btnTest.Text = "Проверка…";
-                lblNote.Text = string.Format("Проверяю {0} ({1}:{2}) напрямую…", cur.name, cur.host, cur.port);
+                lblNote.Text = string.Format("Проверка {0} ({1}://{2}:{3})…", cur.name, cur.NormalizedProtocol(), cur.host, cur.port);
                 lblNote.ForeColor = _p.warn;
 
                 try
                 {
-                    // DIRECT CHECK without touching Xray
-                    var info = await Task.Run(() => AppCore.CheckDirectProxyInfo(cur.host, cur.port, cur.user, cur.pass));
+                    string proto = cur.NormalizedProtocol();
+                    var info = await Task.Run(() => AppCore.CheckDirectProxyInfo(cur.host, cur.port, cur.user, cur.pass, proto));
                     if (info.Ok)
                     {
-                        lblNote.Text = string.Format("✓ {0} ({1}, {2}) · пинг {3} мс · замер скорости…", info.Ip, info.Country, info.City, info.PingMs);
-                        lblNote.ForeColor = _p.ok;
+                        if (proto == "socks")
+                        {
+                            lblNote.Text = string.Format("Готово: {0} ({1} мс)", info.Note, info.PingMs);
+                            lblNote.ForeColor = _p.ok;
+                        }
+                        else
+                        {
+                            string loc = string.IsNullOrEmpty(info.Country) ? "" : string.Format(" ({0}, {1})", info.Country, info.City);
+                            lblNote.Text = string.Format("OK: {0}{1} · {2} мс · замер скорости…", info.Ip, loc, info.PingMs);
+                            lblNote.ForeColor = _p.ok;
 
-                        var sp = await Task.Run(() => AppCore.MeasureSpeed(cur.host, cur.port, cur.user, cur.pass));
-                        string spStr = sp.Ok ? string.Format(" · {0} Мбит/с", sp.Mbps) : "";
-                        lblNote.Text = string.Format("✓ {0} ({1}, {2}) · пинг {3} мс{4}", info.Ip, info.Country, info.City, info.PingMs, spStr);
-                        lblNote.ForeColor = _p.ok;
+                            var sp = await Task.Run(() => AppCore.MeasureSpeed(cur.host, cur.port, cur.user, cur.pass));
+                            string spStr = sp.Ok ? string.Format(" · {0} Мбит/с", sp.Mbps) : "";
+                            lblNote.Text = string.Format("OK: {0}{1} · {2} мс{3}", info.Ip, loc, info.PingMs, spStr);
+                            lblNote.ForeColor = _p.ok;
+                        }
                     }
                     else
                     {
-                        lblNote.Text = "Ошибка подключения: " + info.Error;
+                        lblNote.Text = "Ошибка: " + info.Error;
                         lblNote.ForeColor = _p.err;
                     }
                 }
@@ -1072,7 +1606,7 @@ namespace AntigravityProxyApp
                 finally
                 {
                     btnTest.Enabled = true;
-                    btnTest.Text = "↻ Проверить этот прокси";
+                    btnTest.Text = "Проверить соединение";
                 }
             };
 
@@ -1086,7 +1620,7 @@ namespace AntigravityProxyApp
                 }
                 if (!hasHost)
                 {
-                    lblNote.Text = "Укажите хост/сервер хотя бы для одного прокси.";
+                    lblNote.Text = "Укажите адрес сервера хотя бы для одного профиля.";
                     lblNote.ForeColor = _p.err;
                     return;
                 }
@@ -1114,6 +1648,7 @@ namespace AntigravityProxyApp
             {
                 var cur = _localProxies[_currentIdx];
                 cur.name = tbName.Text.Trim();
+                cur.protocol = (cbProto.SelectedIndex == 1) ? "socks" : "http";
                 cur.host = tbH.Text.Trim();
                 cur.port = tbPt.Text.Trim();
                 cur.user = tbU.Text.Trim();
@@ -1127,6 +1662,7 @@ namespace AntigravityProxyApp
             {
                 var cur = _localProxies[idx];
                 tbName.Text = cur.name ?? "";
+                cbProto.SelectedIndex = (cur.NormalizedProtocol() == "socks") ? 1 : 0;
                 tbH.Text = cur.host ?? "";
                 tbPt.Text = cur.port ?? "";
                 tbU.Text = cur.user ?? "";
@@ -1139,23 +1675,19 @@ namespace AntigravityProxyApp
         {
             if (idx == _localActiveIdx)
             {
-                btnActive.Text = "✓ Текущий активный";
+                btnActive.Text = "Текущий активный";
                 btnActive.Fill = _p.accent;
                 btnActive.Hover = _p.accentHover;
                 btnActive.Pressed = _p.accentPressed;
                 btnActive.BorderWidth = 0;
                 btnActive.ForeColor = Color.White;
+                btnActive.DotColor = Color.White;
             }
             else
             {
                 btnActive.Text = "Сделать активным";
-                btnActive.Fill = _p.secondaryFill;
-                btnActive.Hover = _p.secondaryHover;
-                btnActive.Pressed = _p.secondaryPressed;
-                btnActive.BorderColor = _p.secondaryBorder;
-                btnActive.HoverBorderColor = _p.secondaryHoverBorder;
-                btnActive.BorderWidth = 1;
-                btnActive.ForeColor = _p.secondaryText;
+                btnActive.DotColor = Color.Transparent;
+                StyleSec(btnActive);
             }
             btnActive.Invalidate();
         }
@@ -1169,10 +1701,11 @@ namespace AntigravityProxyApp
                 for (int i = 0; i < _localProxies.Count; i++)
                 {
                     var item = _localProxies[i];
-                    string star = (i == _localActiveIdx) ? "★ " : "";
+                    string mark = (i == _localActiveIdx) ? "[Активный] " : "";
                     string n = !string.IsNullOrEmpty(item.name) ? item.name : ("Прокси " + (i + 1));
-                    string h = !string.IsNullOrEmpty(item.host) ? string.Format("{0}:{1}", item.host, item.port) : "пусто";
-                    cbList.Items.Add(string.Format("{0}{1} ({2})", star, n, h));
+                    string proto = item.NormalizedProtocol().ToUpperInvariant();
+                    string h = !string.IsNullOrEmpty(item.host) ? string.Format("{0}://{1}:{2}", proto, item.host, item.port) : "не задан";
+                    cbList.Items.Add(string.Format("{0}{1} — {2}", mark, n, h));
                 }
                 if (selIdx >= 0 && selIdx < _localProxies.Count)
                     cbList.SelectedIndex = selIdx;
@@ -1192,18 +1725,52 @@ namespace AntigravityProxyApp
         private Palette _p;
         private bool _isExiting = false;
         private bool _updatingProxyCb = false;
+        private int _activeTab = 0;
 
-        private Label lblTitle, lblSub, lblStatus, lblDetail, lblPatch, lblApp, lblFoot;
-        private UiButton btnSettings, btnTheme, btnStatus, btnSpeed;
+        // Header
+        private Label lblTitle, lblHeaderStatus;
+        private UiStatusDot dotHeader;
+        private UiButton btnSettings, btnTheme;
+
+        // Tab bar
+        private UiCard tabBar;
+        private UiButton btnTabHome, btnTabApps, btnTabServices;
+        private Panel pnlHome, pnlApps, pnlServices;
+
+        // Tab 0: Home
+        private UiCard cardNode, cardLaunch, cardSys;
+        private UiStatusDot dotNode;
+        private Label lblStatus, lblDetail, lblNodeMeta;
+        private UiButton btnStatus, btnSpeed;
         private UiComboBox cbActiveProxy;
-        private UiButton btnStart, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnSysProxy;
-        private Panel card1, card2;
+        private UiButton btnStart, btnBrowser, btnTelegram, btnOcGui, btnOcCli;
+        private UiStatusDot dotPatch;
+        private Label lblPatch, lblApp;
+        private UiButton btnPatch, btnSysProxy;
+
+        // Tab 1: Any App Launcher
+        private UiCard cardRunAny, cardSavedApps;
+        private Label lblRunTitle, lblRunPath, lblRunArgs, lblRunFeedback, lblSavedTitle;
+        private TextBox tbAppPath, tbAppArgs;
+        private CheckBox chkChromiumFlag;
+        private UiButton btnBrowseApp, btnRunAny, btnSaveApp, btnRunSaved, btnDelSaved;
+        private UiListBox lbSavedApps;
+
+        // Tab 2: Services Monitor
+        private UiCard cardSrvList, cardSrvProcs;
+        private UiStatusDot dotSrvHttp, dotSrvSocks, dotSrvSys, dotSrvDns, dotSrvPatch, dotSrvProcs;
+        private Label lblSrvHttp, lblSrvHttpVal, lblSrvSocks, lblSrvSocksVal;
+        private Label lblSrvSys, lblSrvSysVal, lblSrvDns, lblSrvDnsVal;
+        private Label lblSrvPatch, lblSrvPatchVal;
+        private Label lblSrvProcsTitle, lblSrvProcsVal, lblSrvConflict;
+        private UiButton btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh;
+
         private NotifyIcon notifyIcon;
 
         public MainForm()
         {
             Text = "Antigravity Proxy";
-            ClientSize = new Size(520, 526);
+            ClientSize = new Size(540, 564);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -1223,13 +1790,13 @@ namespace AntigravityProxyApp
             BuildUI();
             ApplyTheme();
             RefreshProxyComboBox();
+            RefreshSavedAppsList();
+            SwitchTab(0);
             InitTray();
 
             Shown += (s, e) =>
             {
                 Activate();
-                TopMost = true;
-                TopMost = false;
                 EnsureActiveProxySynced();
                 UpdateStatusAsync();
                 UpdatePatch();
@@ -1256,63 +1823,257 @@ namespace AntigravityProxyApp
 
         private void BuildUI()
         {
-            lblTitle = new Label { Text = "Antigravity Proxy", Location = new Point(12, 10), Size = new Size(200, 26), Font = new Font("Segoe UI Semibold", 12f) };
-            lblSub = new Label { Text = "прокси, патч и запуск", Location = new Point(14, 36), Size = new Size(200, 18), Font = new Font("Segoe UI", 8.5f) };
+            // === HEADER ===
+            lblTitle = new Label
+            {
+                Text = "Antigravity Proxy",
+                Location = new Point(18, 12),
+                Size = new Size(220, 24),
+                Font = new Font("Segoe UI Semibold", 12.5f)
+            };
+            dotHeader = new UiStatusDot { Location = new Point(17, 40), Size = new Size(14, 14) };
+            lblHeaderStatus = new Label
+            {
+                Text = "Проверка состояния…",
+                Location = new Point(34, 38),
+                Size = new Size(250, 18),
+                Font = new Font("Segoe UI", 8.5f)
+            };
             Controls.Add(lblTitle);
-            Controls.Add(lblSub);
+            Controls.Add(dotHeader);
+            Controls.Add(lblHeaderStatus);
 
-            btnSettings = new UiButton { Text = "Настройки", Location = new Point(284, 12), Size = new Size(108, 32), Radius = 7 };
-            btnTheme = new UiButton { Text = "", Location = new Point(398, 12), Size = new Size(106, 32), Radius = 7 };
+            btnSettings = new UiButton { Text = "Настройки", Location = new Point(324, 16), Size = new Size(100, 32), Radius = 7 };
+            btnTheme = new UiButton { Text = "Светлая", Location = new Point(432, 16), Size = new Size(90, 32), Radius = 7 };
             Controls.Add(btnSettings);
             Controls.Add(btnTheme);
-            btnSettings.BringToFront();
-            btnTheme.BringToFront();
 
-            // Card 1
-            card1 = new Panel { Location = new Point(16, 64), Size = new Size(488, 122) };
-            Controls.Add(card1);
+            // === SEGMENTED TAB BAR ===
+            tabBar = new UiCard { Location = new Point(18, 66), Size = new Size(504, 38), Radius = 9 };
+            Controls.Add(tabBar);
 
-            lblStatus = new Label { Text = "Запускаю прокси…", Location = new Point(16, 14), Size = new Size(450, 24), Font = new Font("Segoe UI Semibold", 10.5f) };
-            lblDetail = new Label { Text = "", Location = new Point(16, 40), Size = new Size(450, 34), Font = new Font("Segoe UI", 8.5f) };
-            card1.Controls.Add(lblStatus);
-            card1.Controls.Add(lblDetail);
+            btnTabHome = new UiButton { Text = "Главная", Location = new Point(4, 4), Size = new Size(164, 30), Radius = 7, BorderWidth = 0 };
+            btnTabApps = new UiButton { Text = "Приложения", Location = new Point(170, 4), Size = new Size(164, 30), Radius = 7, BorderWidth = 0 };
+            btnTabServices = new UiButton { Text = "Сервисы", Location = new Point(336, 4), Size = new Size(164, 30), Radius = 7, BorderWidth = 0 };
+            tabBar.Controls.Add(btnTabHome);
+            tabBar.Controls.Add(btnTabApps);
+            tabBar.Controls.Add(btnTabServices);
 
-            btnStatus = new UiButton { Text = "↻ Статус", Location = new Point(16, 80), Size = new Size(96, 28), Radius = 6 };
-            btnSpeed = new UiButton { Text = "⚡ Скорость", Location = new Point(118, 80), Size = new Size(104, 28), Radius = 6 };
-            cbActiveProxy = new UiComboBox { Location = new Point(228, 80), Size = new Size(244, 28), DropDownWidth = 280, Font = new Font("Segoe UI", 9f) };
-            card1.Controls.Add(btnStatus);
-            card1.Controls.Add(btnSpeed);
-            card1.Controls.Add(cbActiveProxy);
+            // === CONTENT CONTAINERS ===
+            pnlHome = new Panel { Location = new Point(0, 114), Size = new Size(540, 446) };
+            pnlApps = new Panel { Location = new Point(0, 114), Size = new Size(540, 446), Visible = false };
+            pnlServices = new Panel { Location = new Point(0, 114), Size = new Size(540, 446), Visible = false };
+            Controls.Add(pnlHome);
+            Controls.Add(pnlApps);
+            Controls.Add(pnlServices);
 
-            // Action buttons
-            btnStart = new UiButton { Text = "▶ Запустить Antigravity", Location = new Point(16, 196), Size = new Size(488, 42), Radius = 8, Font = new Font("Segoe UI Semibold", 10.5f) };
-            btnBrowser = new UiButton { Text = "🌐 AI Studio (Web)", Location = new Point(16, 246), Size = new Size(240, 36), Radius = 7 };
-            btnTelegram = new UiButton { Text = "✈ Telegram (Прокси)", Location = new Point(264, 246), Size = new Size(240, 36), Radius = 7 };
-            btnOcGui = new UiButton { Text = "⚡ OpenCode GUI", Location = new Point(16, 288), Size = new Size(240, 34), Radius = 7 };
-            btnOcCli = new UiButton { Text = ">_ OpenCode CLI", Location = new Point(264, 288), Size = new Size(240, 34), Radius = 7 };
-            Controls.Add(btnStart);
-            Controls.Add(btnBrowser);
-            Controls.Add(btnTelegram);
-            Controls.Add(btnOcGui);
-            Controls.Add(btnOcCli);
+            BuildHomeTab();
+            BuildAppsTab();
+            BuildServicesTab();
+            WireEvents();
+        }
 
-            // Card 2
-            card2 = new Panel { Location = new Point(16, 332), Size = new Size(488, 150) };
-            Controls.Add(card2);
+        private void BuildHomeTab()
+        {
+            // Card 1: Active Node
+            cardNode = new UiCard { Location = new Point(18, 4), Size = new Size(504, 134), Radius = 10 };
+            pnlHome.Controls.Add(cardNode);
 
-            lblPatch = new Label { Text = "Патч: проверка…", Location = new Point(16, 14), Size = new Size(300, 20), Font = new Font("Segoe UI", 9f) };
-            btnPatch = new UiButton { Text = "Патч", Location = new Point(380, 10), Size = new Size(92, 28), Radius = 6 };
-            lblApp = new Label { Text = "", Location = new Point(16, 42), Size = new Size(450, 42), Font = new Font("Segoe UI", 8f) };
-            btnSysProxy = new UiButton { Text = "Системный прокси: выкл", Location = new Point(16, 98), Size = new Size(260, 32), Radius = 7 };
-            card2.Controls.Add(lblPatch);
-            card2.Controls.Add(btnPatch);
-            card2.Controls.Add(lblApp);
-            card2.Controls.Add(btnSysProxy);
+            dotNode = new UiStatusDot { Location = new Point(16, 17), Size = new Size(14, 14) };
+            lblStatus = new Label { Text = "Проверка узла…", Location = new Point(36, 14), Size = new Size(448, 22), Font = new Font("Segoe UI Semibold", 10.5f) };
+            lblDetail = new Label { Text = "", Location = new Point(18, 42), Size = new Size(468, 20), Font = new Font("Consolas", 8.75f) };
+            lblNodeMeta = new Label { Text = "", Location = new Point(18, 63), Size = new Size(468, 18), Font = new Font("Segoe UI", 8.25f) };
+            cardNode.Controls.Add(dotNode);
+            cardNode.Controls.Add(lblStatus);
+            cardNode.Controls.Add(lblDetail);
+            cardNode.Controls.Add(lblNodeMeta);
 
-            lblFoot = new Label { Text = "Прокси-настройки, тема и пути — в «Настройках».", Location = new Point(18, 494), Size = new Size(480, 18), Font = new Font("Segoe UI", 8.5f) };
-            Controls.Add(lblFoot);
+            btnStatus = new UiButton { Text = "Обновить", Location = new Point(16, 92), Size = new Size(92, 28), Radius = 6 };
+            btnSpeed = new UiButton { Text = "Скорость", Location = new Point(114, 92), Size = new Size(92, 28), Radius = 6 };
+            cbActiveProxy = new UiComboBox { Location = new Point(214, 92), Size = new Size(274, 28), DropDownWidth = 300, Font = new Font("Segoe UI", 9f) };
+            cardNode.Controls.Add(btnStatus);
+            cardNode.Controls.Add(btnSpeed);
+            cardNode.Controls.Add(cbActiveProxy);
 
-            // Handlers
+            // Card 2: Quick Launchers
+            cardLaunch = new UiCard { Location = new Point(18, 148), Size = new Size(504, 152), Radius = 10 };
+            pnlHome.Controls.Add(cardLaunch);
+
+            btnStart = new UiButton { Text = "Запустить Antigravity", Location = new Point(14, 14), Size = new Size(476, 40), Radius = 7, Font = new Font("Segoe UI Semibold", 10f) };
+            btnBrowser = new UiButton { Text = "AI Studio (Web)", Location = new Point(14, 62), Size = new Size(234, 34), Radius = 7 };
+            btnTelegram = new UiButton { Text = "Telegram (SOCKS5)", Location = new Point(256, 62), Size = new Size(234, 34), Radius = 7 };
+            btnOcGui = new UiButton { Text = "OpenCode GUI", Location = new Point(14, 104), Size = new Size(234, 34), Radius = 7 };
+            btnOcCli = new UiButton { Text = "OpenCode CLI", Location = new Point(256, 104), Size = new Size(234, 34), Radius = 7 };
+            cardLaunch.Controls.Add(btnStart);
+            cardLaunch.Controls.Add(btnBrowser);
+            cardLaunch.Controls.Add(btnTelegram);
+            cardLaunch.Controls.Add(btnOcGui);
+            cardLaunch.Controls.Add(btnOcCli);
+
+            // Card 3: System & Patch
+            cardSys = new UiCard { Location = new Point(18, 310), Size = new Size(504, 122), Radius = 10 };
+            pnlHome.Controls.Add(cardSys);
+
+            dotPatch = new UiStatusDot { Location = new Point(16, 17), Size = new Size(14, 14) };
+            lblPatch = new Label { Text = "Патч: проверка…", Location = new Point(36, 14), Size = new Size(340, 20), Font = new Font("Segoe UI Semibold", 9.25f) };
+            btnPatch = new UiButton { Text = "Патч", Location = new Point(398, 12), Size = new Size(90, 28), Radius = 6 };
+            lblApp = new Label { Text = "", Location = new Point(18, 40), Size = new Size(468, 20), Font = new Font("Consolas", 8f) };
+            btnSysProxy = new UiButton { Text = "Системный прокси: выкл", Location = new Point(16, 72), Size = new Size(260, 34), Radius = 7 };
+            cardSys.Controls.Add(dotPatch);
+            cardSys.Controls.Add(lblPatch);
+            cardSys.Controls.Add(btnPatch);
+            cardSys.Controls.Add(lblApp);
+            cardSys.Controls.Add(btnSysProxy);
+        }
+
+        private void BuildAppsTab()
+        {
+            cardRunAny = new UiCard { Location = new Point(18, 4), Size = new Size(504, 214), Radius = 10 };
+            pnlApps.Controls.Add(cardRunAny);
+
+            lblRunTitle = new Label
+            {
+                Text = "Запуск любого приложения через прокси",
+                Location = new Point(16, 14),
+                Size = new Size(460, 22),
+                Font = new Font("Segoe UI Semibold", 10f)
+            };
+            cardRunAny.Controls.Add(lblRunTitle);
+
+            lblRunPath = new Label { Text = "Исполняемый файл (.exe, .cmd, .bat)", Location = new Point(16, 42), Size = new Size(300, 16), Font = new Font("Segoe UI", 8.25f) };
+            tbAppPath = new TextBox { Location = new Point(16, 60), Size = new Size(376, 24), BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 8.75f) };
+            btnBrowseApp = new UiButton { Text = "Обзор…", Location = new Point(400, 58), Size = new Size(88, 26), Radius = 6 };
+            cardRunAny.Controls.Add(lblRunPath);
+            cardRunAny.Controls.Add(tbAppPath);
+            cardRunAny.Controls.Add(btnBrowseApp);
+
+            lblRunArgs = new Label { Text = "Аргументы запуска (необязательно)", Location = new Point(16, 92), Size = new Size(300, 16), Font = new Font("Segoe UI", 8.25f) };
+            tbAppArgs = new TextBox { Location = new Point(16, 110), Size = new Size(472, 24), BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 8.75f) };
+            cardRunAny.Controls.Add(lblRunArgs);
+            cardRunAny.Controls.Add(tbAppArgs);
+
+            chkChromiumFlag = new CheckBox
+            {
+                Text = "Добавить --proxy-server=http://127.0.0.1:10809 (для браузеров и Electron)",
+                Location = new Point(16, 140),
+                Size = new Size(472, 20),
+                Font = new Font("Segoe UI", 8.25f)
+            };
+            cardRunAny.Controls.Add(chkChromiumFlag);
+
+            btnRunAny = new UiButton { Text = "Запустить через прокси", Location = new Point(16, 168), Size = new Size(240, 34), Radius = 7, Font = new Font("Segoe UI Semibold", 9.25f) };
+            btnSaveApp = new UiButton { Text = "Сохранить в список", Location = new Point(266, 168), Size = new Size(154, 34), Radius = 7 };
+            cardRunAny.Controls.Add(btnRunAny);
+            cardRunAny.Controls.Add(btnSaveApp);
+
+            // Saved Apps Card
+            cardSavedApps = new UiCard { Location = new Point(18, 228), Size = new Size(504, 204), Radius = 10 };
+            pnlApps.Controls.Add(cardSavedApps);
+
+            lblSavedTitle = new Label
+            {
+                Text = "Сохранённые приложения (двойной клик для запуска)",
+                Location = new Point(16, 12),
+                Size = new Size(350, 20),
+                Font = new Font("Segoe UI Semibold", 9.25f)
+            };
+            cardSavedApps.Controls.Add(lblSavedTitle);
+
+            lbSavedApps = new UiListBox { Location = new Point(16, 38), Size = new Size(472, 118) };
+            cardSavedApps.Controls.Add(lbSavedApps);
+
+            btnRunSaved = new UiButton { Text = "Запустить выбранное", Location = new Point(16, 164), Size = new Size(170, 30), Radius = 6 };
+            btnDelSaved = new UiButton { Text = "Удалить", Location = new Point(194, 164), Size = new Size(92, 30), Radius = 6 };
+            lblRunFeedback = new Label { Text = "", Location = new Point(296, 170), Size = new Size(192, 18), Font = new Font("Segoe UI", 8.25f), TextAlign = ContentAlignment.MiddleRight };
+            cardSavedApps.Controls.Add(btnRunSaved);
+            cardSavedApps.Controls.Add(btnDelSaved);
+            cardSavedApps.Controls.Add(lblRunFeedback);
+        }
+
+        private void AddServiceRow(UiCard parent, int y, string title, out UiStatusDot dot, out Label lblName, out Label lblVal, UiButton actionBtn = null)
+        {
+            dot = new UiStatusDot { Location = new Point(16, y + 6), Size = new Size(14, 14) };
+            lblName = new Label
+            {
+                Text = title,
+                Location = new Point(36, y),
+                Size = new Size(210, 18),
+                Font = new Font("Segoe UI Semibold", 9f)
+            };
+            lblVal = new Label
+            {
+                Text = "Проверка…",
+                Location = new Point(36, y + 18),
+                Size = new Size(actionBtn != null ? 330 : 450, 17),
+                Font = new Font("Consolas", 8.25f)
+            };
+            parent.Controls.Add(dot);
+            parent.Controls.Add(lblName);
+            parent.Controls.Add(lblVal);
+            if (actionBtn != null)
+            {
+                actionBtn.Location = new Point(378, y + 3);
+                actionBtn.Size = new Size(110, 28);
+                actionBtn.Radius = 6;
+                parent.Controls.Add(actionBtn);
+            }
+        }
+
+        private void BuildServicesTab()
+        {
+            cardSrvList = new UiCard { Location = new Point(18, 4), Size = new Size(504, 272), Radius = 10 };
+            pnlServices.Controls.Add(cardSrvList);
+
+            btnSrvRestartXray = new UiButton { Text = "Перезапуск" };
+            btnSrvToggleSys = new UiButton { Text = "Включить" };
+            btnSrvPatch = new UiButton { Text = "Патч" };
+
+            AddServiceRow(cardSrvList, 14, "Локальный Xray (HTTP :10809)", out dotSrvHttp, out lblSrvHttp, out lblSrvHttpVal, btnSrvRestartXray);
+            AddServiceRow(cardSrvList, 64, "Локальный Xray (SOCKS5 :10808)", out dotSrvSocks, out lblSrvSocks, out lblSrvSocksVal);
+            AddServiceRow(cardSrvList, 114, "Системный прокси Windows", out dotSrvSys, out lblSrvSys, out lblSrvSysVal, btnSrvToggleSys);
+            AddServiceRow(cardSrvList, 164, "AGDNS (Локальный DoH :53)", out dotSrvDns, out lblSrvDns, out lblSrvDnsVal);
+            AddServiceRow(cardSrvList, 214, "Патч Antigravity", out dotSrvPatch, out lblSrvPatch, out lblSrvPatchVal, btnSrvPatch);
+
+            cardSrvProcs = new UiCard { Location = new Point(18, 286), Size = new Size(504, 100), Radius = 10 };
+            pnlServices.Controls.Add(cardSrvProcs);
+
+            dotSrvProcs = new UiStatusDot { Location = new Point(16, 16), Size = new Size(14, 14) };
+            lblSrvProcsTitle = new Label
+            {
+                Text = "Активные процессы",
+                Location = new Point(36, 13),
+                Size = new Size(250, 20),
+                Font = new Font("Segoe UI Semibold", 9.5f)
+            };
+            lblSrvProcsVal = new Label
+            {
+                Text = "Проверка…",
+                Location = new Point(18, 40),
+                Size = new Size(468, 22),
+                Font = new Font("Consolas", 8.5f)
+            };
+            lblSrvConflict = new Label
+            {
+                Text = "",
+                Location = new Point(18, 66),
+                Size = new Size(468, 22),
+                Font = new Font("Segoe UI", 8.25f)
+            };
+            cardSrvProcs.Controls.Add(dotSrvProcs);
+            cardSrvProcs.Controls.Add(lblSrvProcsTitle);
+            cardSrvProcs.Controls.Add(lblSrvProcsVal);
+            cardSrvProcs.Controls.Add(lblSrvConflict);
+
+            btnSrvRefresh = new UiButton { Text = "Обновить состояние сервисов", Location = new Point(18, 398), Size = new Size(220, 34), Radius = 7 };
+            pnlServices.Controls.Add(btnSrvRefresh);
+        }
+
+        private void WireEvents()
+        {
+            btnTabHome.Click += (s, e) => SwitchTab(0);
+            btnTabApps.Click += (s, e) => SwitchTab(1);
+            btnTabServices.Click += (s, e) => SwitchTab(2);
+
             btnTheme.Click += (s, e) =>
             {
                 _settings.theme = (_settings.theme == "dark") ? "light" : "dark";
@@ -1334,6 +2095,7 @@ namespace AntigravityProxyApp
                         EnsureActiveProxySynced();
                         UpdateStatusAsync();
                         UpdatePatch();
+                        if (_activeTab == 2) RefreshServicesAsync();
                     }
                 }
             };
@@ -1349,10 +2111,7 @@ namespace AntigravityProxyApp
                 }
             };
 
-            btnStatus.Click += (s, e) =>
-            {
-                UpdateStatusAsync();
-            };
+            btnStatus.Click += (s, e) => UpdateStatusAsync();
 
             btnSpeed.Click += async (s, e) =>
             {
@@ -1360,12 +2119,14 @@ namespace AntigravityProxyApp
                 {
                     lblStatus.Text = "Прокси не запущен";
                     lblStatus.ForeColor = _p.err;
+                    dotNode.DotColor = _p.err;
                     return;
                 }
                 btnSpeed.Enabled = false;
-                btnSpeed.Text = "⚡ Замер…";
+                btnSpeed.Text = "Замер…";
                 lblStatus.Text = "Замер скорости…";
                 lblStatus.ForeColor = _p.warn;
+                dotNode.DotColor = _p.warn;
 
                 try
                 {
@@ -1374,15 +2135,18 @@ namespace AntigravityProxyApp
                     {
                         lblStatus.Text = "Прокси работает";
                         lblStatus.ForeColor = _p.ok;
+                        dotNode.DotColor = _p.ok;
                         var act = GetActiveProxy();
                         string pName = (act != null && !string.IsNullOrEmpty(act.name)) ? act.name : "Прокси";
-                        lblDetail.Text = string.Format("{0}: {1} Мбит/с · задержка {2} мс\r\nТест Cloudflare CDN (поток данных)", pName, res.Mbps, res.PingMs);
+                        lblDetail.Text = string.Format("{0} Мбит/с  |  пинг {1} мс  (Cloudflare CDN)", res.Mbps, res.PingMs);
+                        lblNodeMeta.Text = string.Format("Активный профиль: {0}", pName);
                     }
                     else
                     {
                         lblStatus.Text = "Ошибка замера скорости";
                         lblStatus.ForeColor = _p.warn;
-                        lblDetail.Text = "Не удалось загрузить данные: " + res.Error;
+                        dotNode.DotColor = _p.warn;
+                        lblDetail.Text = res.Error;
                     }
                 }
                 catch (Exception ex)
@@ -1390,11 +2154,12 @@ namespace AntigravityProxyApp
                     AppCore.Log("BtnSpeed: " + ex.ToString());
                     lblStatus.Text = "Ошибка замера";
                     lblStatus.ForeColor = _p.err;
+                    dotNode.DotColor = _p.err;
                 }
                 finally
                 {
                     btnSpeed.Enabled = true;
-                    btnSpeed.Text = "⚡ Скорость";
+                    btnSpeed.Text = "Скорость";
                 }
             };
 
@@ -1405,22 +2170,17 @@ namespace AntigravityProxyApp
                     string app = AppCore.FindAntigravityApp();
                     if (string.IsNullOrEmpty(app))
                     {
-                        MessageBox.Show("Antigravity не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show("Antigravity не найден на этом компьютере.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
                     if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-
-                    Environment.SetEnvironmentVariable("AG_LS_PROXY", "http://127.0.0.1:10809");
-                    Environment.SetEnvironmentVariable("HTTP_PROXY", "http://127.0.0.1:10809");
-                    Environment.SetEnvironmentVariable("HTTPS_PROXY", "http://127.0.0.1:10809");
-                    Environment.SetEnvironmentVariable("NO_PROXY", "localhost,127.0.0.1,::1," + Environment.MachineName);
 
                     foreach (var p in Process.GetProcessesByName("Antigravity"))
                     {
                         try { p.Kill(); } catch { }
                     }
                     System.Threading.Thread.Sleep(700);
-                    Process.Start(app);
+                    AppCore.StartWithProxyEnv(app);
                     UpdateStatusAsync();
                 }
                 catch (Exception ex)
@@ -1460,28 +2220,17 @@ namespace AntigravityProxyApp
                     {
                         AppCore.RestartXray();
                     }
-                    SetProxyEnv();
 
                     string tg = AppCore.FindTelegramApp();
                     string proxyUrl = "tg://socks?server=127.0.0.1&port=10808";
 
                     if (!string.IsNullOrEmpty(tg))
                     {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = tg,
-                            Arguments = "-- \"" + proxyUrl + "\"",
-                            WorkingDirectory = Path.GetDirectoryName(tg)
-                        };
-                        Process.Start(psi);
+                        AppCore.StartWithProxyEnv(tg, "-- \"" + proxyUrl + "\"", Path.GetDirectoryName(tg));
                     }
                     else
                     {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = proxyUrl,
-                            UseShellExecute = true
-                        });
+                        Process.Start(new ProcessStartInfo { FileName = proxyUrl, UseShellExecute = true });
                     }
                 }
                 catch (Exception ex)
@@ -1501,8 +2250,7 @@ namespace AntigravityProxyApp
                         return;
                     }
                     if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-                    SetProxyEnv();
-                    Process.Start(oc);
+                    AppCore.StartWithProxyEnv(oc);
                 }
                 catch (Exception ex)
                 {
@@ -1521,13 +2269,7 @@ namespace AntigravityProxyApp
                         return;
                     }
                     if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-                    SetProxyEnv();
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = "powershell.exe",
-                        Arguments = "-NoExit -NoProfile -Command \"& '" + oc + "'\""
-                    };
-                    Process.Start(psi);
+                    AppCore.StartWithProxyEnv("powershell.exe", "-NoExit -NoProfile -Command \"& '" + oc + "'\"");
                 }
                 catch (Exception ex)
                 {
@@ -1535,107 +2277,299 @@ namespace AntigravityProxyApp
                 }
             };
 
-            btnPatch.Click += (s, e) =>
+            Action runPatcherAction = () =>
             {
                 string patcher = AppCore.FindPatcher();
                 if (string.IsNullOrEmpty(patcher))
                 {
-                    MessageBox.Show("Патчер не найден в «Загрузках».", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show("Файл Open_AG_Patcher*.exe не найден в «Загрузках».", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
                 try
                 {
                     string app = AppCore.FindAntigravityApp();
                     string dir = !string.IsNullOrEmpty(app) ? Path.GetDirectoryName(app) : "";
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = patcher,
-                        Verb = "runas"
-                    };
+                    var psi = new ProcessStartInfo { FileName = patcher, Verb = "runas" };
                     if (!string.IsNullOrEmpty(dir)) psi.Arguments = "\"" + dir + "\"";
                     Process.Start(psi);
                     lblPatch.Text = "Патчер запущен — выберите PATCH";
                     lblPatch.ForeColor = _p.warn;
+                    dotPatch.DotColor = _p.warn;
                 }
                 catch
                 {
                     lblPatch.Text = "Не удалось запустить патчер";
                     lblPatch.ForeColor = _p.err;
+                    dotPatch.DotColor = _p.err;
                 }
             };
 
-            btnSysProxy.Click += (s, e) =>
+            btnPatch.Click += (s, e) => runPatcherAction();
+            btnSrvPatch.Click += (s, e) => runPatcherAction();
+
+            Action toggleSysProxyAction = () =>
             {
                 bool current = AppCore.TestSystemProxy();
                 AppCore.SetSystemProxy(!current);
                 UpdateSysProxyButton();
+                if (_activeTab == 2) RefreshServicesAsync();
+            };
+
+            btnSysProxy.Click += (s, e) => toggleSysProxyAction();
+            btnSrvToggleSys.Click += (s, e) => toggleSysProxyAction();
+
+            // === TAB 1: ANY APP ===
+            btnBrowseApp.Click += (s, e) =>
+            {
+                using (var ofd = new OpenFileDialog())
+                {
+                    ofd.Title = "Выберите приложение для запуска через прокси";
+                    ofd.Filter = "Приложения (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|Все файлы (*.*)|*.*";
+                    if (ofd.ShowDialog(this) == DialogResult.OK)
+                    {
+                        tbAppPath.Text = ofd.FileName;
+                        lblRunFeedback.Text = "";
+                    }
+                }
+            };
+
+            btnRunAny.Click += (s, e) =>
+            {
+                LaunchCustomApp(tbAppPath.Text.Trim(), tbAppArgs.Text.Trim(), chkChromiumFlag.Checked);
+            };
+
+            btnSaveApp.Click += (s, e) =>
+            {
+                string path = tbAppPath.Text.Trim();
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    lblRunFeedback.Text = "Сначала выберите существующий файл";
+                    lblRunFeedback.ForeColor = _p.err;
+                    return;
+                }
+                string name = Path.GetFileNameWithoutExtension(path);
+                _settings.customApps.Add(new CustomAppItem
+                {
+                    name = name,
+                    path = path,
+                    args = tbAppArgs.Text.Trim(),
+                    chromiumFlag = chkChromiumFlag.Checked
+                });
+                AppCore.SaveSettings(_settings);
+                RefreshSavedAppsList();
+                lblRunFeedback.Text = "Сохранено: " + name;
+                lblRunFeedback.ForeColor = _p.ok;
+            };
+
+            btnRunSaved.Click += (s, e) => RunSelectedSavedApp();
+            lbSavedApps.DoubleClick += (s, e) => RunSelectedSavedApp();
+
+            btnDelSaved.Click += (s, e) =>
+            {
+                int idx = lbSavedApps.SelectedIndex;
+                if (idx < 0 || idx >= _settings.customApps.Count) return;
+                _settings.customApps.RemoveAt(idx);
+                AppCore.SaveSettings(_settings);
+                RefreshSavedAppsList();
+                lblRunFeedback.Text = "Удалено из списка";
+                lblRunFeedback.ForeColor = _p.muted;
+            };
+
+            // === TAB 2: SERVICES ===
+            btnSrvRefresh.Click += (s, e) => RefreshServicesAsync();
+
+            btnSrvRestartXray.Click += async (s, e) =>
+            {
+                btnSrvRestartXray.Enabled = false;
+                btnSrvRestartXray.Text = "Запуск…";
+                await Task.Run(() =>
+                {
+                    var act = GetActiveProxy();
+                    if (act != null && !string.IsNullOrEmpty(act.host))
+                    {
+                        AppCore.WriteXrayConfig(act.host, act.port, act.user, act.pass, act.NormalizedProtocol());
+                    }
+                    AppCore.RestartXray();
+                });
+                btnSrvRestartXray.Enabled = true;
+                btnSrvRestartXray.Text = "Перезапуск";
+                RefreshServicesAsync();
+                UpdateStatusAsync();
             };
         }
 
-        private void SetProxyEnv()
+        private void LaunchCustomApp(string path, string args, bool chromiumFlag)
         {
-            string bypass = "localhost,127.0.0.1,::1," + Environment.MachineName;
-            Environment.SetEnvironmentVariable("HTTP_PROXY", "http://127.0.0.1:10809");
-            Environment.SetEnvironmentVariable("HTTPS_PROXY", "http://127.0.0.1:10809");
-            Environment.SetEnvironmentVariable("ALL_PROXY", "http://127.0.0.1:10809");
-            Environment.SetEnvironmentVariable("NO_PROXY", bypass);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                lblRunFeedback.Text = "Файл не найден";
+                lblRunFeedback.ForeColor = _p.err;
+                MessageBox.Show("Укажите существующий файл программы.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            try
+            {
+                if (!AppCore.TestPort(10809)) AppCore.RestartXray();
+                string finalArgs = args ?? "";
+                if (chromiumFlag)
+                {
+                    string flag = string.Format("--proxy-server=http://127.0.0.1:10809 --proxy-bypass-list=\"<local>;localhost;127.0.0.1;::1;{0}\"", Environment.MachineName);
+                    finalArgs = string.IsNullOrEmpty(finalArgs) ? flag : (flag + " " + finalArgs);
+                }
+                AppCore.StartWithProxyEnv(path, finalArgs, Path.GetDirectoryName(path));
+                lblRunFeedback.Text = "Запущено: " + Path.GetFileName(path);
+                lblRunFeedback.ForeColor = _p.ok;
+            }
+            catch (Exception ex)
+            {
+                lblRunFeedback.Text = "Ошибка запуска";
+                lblRunFeedback.ForeColor = _p.err;
+                MessageBox.Show("Не удалось запустить приложение: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void RunSelectedSavedApp()
+        {
+            int idx = lbSavedApps.SelectedIndex;
+            if (idx < 0 || idx >= _settings.customApps.Count) return;
+            var item = _settings.customApps[idx];
+            LaunchCustomApp(item.path, item.args, item.chromiumFlag);
+        }
+
+        private void RefreshSavedAppsList()
+        {
+            lbSavedApps.Items.Clear();
+            if (_settings.customApps == null) return;
+            foreach (var app in _settings.customApps)
+            {
+                string extra = app.chromiumFlag ? " [Chromium]" : "";
+                lbSavedApps.Items.Add(string.Format("{0}{1}\n{2}", app.name, extra, app.path));
+            }
+        }
+
+        private void SwitchTab(int tabIndex)
+        {
+            _activeTab = tabIndex;
+            pnlHome.Visible = (tabIndex == 0);
+            pnlApps.Visible = (tabIndex == 1);
+            pnlServices.Visible = (tabIndex == 2);
+            StyleTabs();
+            if (tabIndex == 2) RefreshServicesAsync();
+        }
+
+        private void StyleTabs()
+        {
+            UiButton[] tabs = { btnTabHome, btnTabApps, btnTabServices };
+            for (int i = 0; i < tabs.Length; i++)
+            {
+                bool active = (i == _activeTab);
+                if (active)
+                {
+                    tabs[i].Fill = _p.card;
+                    tabs[i].Hover = _p.card;
+                    tabs[i].Pressed = _p.card;
+                    tabs[i].ForeColor = _p.ink;
+                    tabs[i].BorderColor = _p.border;
+                    tabs[i].HoverBorderColor = _p.border;
+                    tabs[i].BorderWidth = 1;
+                    tabs[i].Font = new Font("Segoe UI Semibold", 9f);
+                }
+                else
+                {
+                    tabs[i].Fill = _p.elevated;
+                    tabs[i].Hover = _p.secondaryHover;
+                    tabs[i].Pressed = _p.secondaryPressed;
+                    tabs[i].ForeColor = _p.muted;
+                    tabs[i].BorderWidth = 0;
+                    tabs[i].Font = new Font("Segoe UI", 9f);
+                }
+                tabs[i].Invalidate();
+            }
+        }
+
+        private void StyleSecondaryButton(UiButton b)
+        {
+            b.Fill = _p.secondaryFill;
+            b.Hover = _p.secondaryHover;
+            b.Pressed = _p.secondaryPressed;
+            b.BorderColor = _p.secondaryBorder;
+            b.HoverBorderColor = _p.secondaryHoverBorder;
+            b.BorderWidth = 1;
+            b.ForeColor = _p.secondaryText;
+            b.DisabledFill = _p.disabledFill;
+            b.DisabledText = _p.disabledText;
+        }
+
+        private void StylePrimaryButton(UiButton b)
+        {
+            b.Fill = _p.accent;
+            b.Hover = _p.accentHover;
+            b.Pressed = _p.accentPressed;
+            b.BorderWidth = 0;
+            b.ForeColor = Color.White;
+            b.DisabledFill = _p.disabledFill;
+            b.DisabledText = _p.disabledText;
         }
 
         private void ApplyTheme()
         {
             BackColor = _p.bg;
+            pnlHome.BackColor = _p.bg;
+            pnlApps.BackColor = _p.bg;
+            pnlServices.BackColor = _p.bg;
 
-            lblTitle.ForeColor = _p.ink;
-            lblSub.ForeColor = _p.muted;
-            lblStatus.ForeColor = _p.ink;
-            lblDetail.ForeColor = _p.muted;
-            lblPatch.ForeColor = _p.muted;
-            lblApp.ForeColor = _p.muted;
-            lblFoot.ForeColor = _p.muted;
+            tabBar.FillColor = _p.elevated;
+            tabBar.BorderColor = _p.border;
 
-            lblTitle.BackColor = Color.Transparent;
-            lblSub.BackColor = Color.Transparent;
-            lblStatus.BackColor = Color.Transparent;
-            lblDetail.BackColor = Color.Transparent;
-            lblPatch.BackColor = Color.Transparent;
-            lblApp.BackColor = Color.Transparent;
-            lblFoot.BackColor = Color.Transparent;
-
-            card1.BackColor = _p.card;
-            card2.BackColor = _p.card;
-
-            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch };
-            foreach (var b in secButtons)
+            UiCard[] cards = { cardNode, cardLaunch, cardSys, cardRunAny, cardSavedApps, cardSrvList, cardSrvProcs };
+            foreach (var c in cards)
             {
-                b.Fill = _p.secondaryFill;
-                b.Hover = _p.secondaryHover;
-                b.Pressed = _p.secondaryPressed;
-                b.BorderColor = _p.secondaryBorder;
-                b.HoverBorderColor = _p.secondaryHoverBorder;
-                b.BorderWidth = 1;
-                b.ForeColor = _p.secondaryText;
+                c.FillColor = _p.card;
+                c.BorderColor = _p.border;
+                c.BackColor = _p.card;
             }
 
-            btnStart.Fill = _p.accent;
-            btnStart.Hover = _p.accentHover;
-            btnStart.Pressed = _p.accentPressed;
-            btnStart.BorderWidth = 0;
-            btnStart.ForeColor = Color.White;
+            Label[] inkLabels = { lblTitle, lblStatus, lblRunTitle, lblSavedTitle, lblSrvHttp, lblSrvSocks, lblSrvSys, lblSrvDns, lblSrvPatch, lblSrvProcsTitle };
+            foreach (var l in inkLabels) { l.ForeColor = _p.ink; l.BackColor = Color.Transparent; }
 
-            btnTheme.Text = (_settings.theme == "dark") ? "☀ Светлая" : "🌙 Тёмная";
-            btnTheme.ForeColor = _p.ink;
+            Label[] mutedLabels = { lblHeaderStatus, lblDetail, lblNodeMeta, lblPatch, lblApp, lblRunPath, lblRunArgs, lblRunFeedback, lblSrvHttpVal, lblSrvSocksVal, lblSrvSysVal, lblSrvDnsVal, lblSrvPatchVal, lblSrvProcsVal, lblSrvConflict };
+            foreach (var l in mutedLabels) { l.ForeColor = _p.muted; l.BackColor = Color.Transparent; }
+
+            chkChromiumFlag.ForeColor = _p.muted;
+            chkChromiumFlag.BackColor = Color.Transparent;
+
+            tbAppPath.BackColor = _p.inputBg;
+            tbAppPath.ForeColor = _p.ink;
+            tbAppArgs.BackColor = _p.inputBg;
+            tbAppArgs.ForeColor = _p.ink;
+
+            lbSavedApps.BackColor = _p.inputBg;
+            lbSavedApps.ItemBackColor = _p.inputBg;
+            lbSavedApps.ItemForeColor = _p.ink;
+            lbSavedApps.SubTextColor = _p.muted;
+            lbSavedApps.SelectedItemBackColor = _p.accent;
+            lbSavedApps.SelectedItemForeColor = Color.White;
+
+            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh };
+            foreach (var b in secButtons) StyleSecondaryButton(b);
+
+            StylePrimaryButton(btnStart);
+            StylePrimaryButton(btnRunAny);
+
+            btnTheme.Text = (_settings.theme == "dark") ? "Светлая" : "Тёмная";
 
             if (cbActiveProxy != null)
             {
-                cbActiveProxy.BackColor = _p.secondaryFill;
+                cbActiveProxy.BackColor = _p.elevated;
                 cbActiveProxy.ForeColor = _p.ink;
-                cbActiveProxy.ItemBackColor = _p.secondaryFill;
+                cbActiveProxy.ItemBackColor = _p.elevated;
                 cbActiveProxy.ItemForeColor = _p.ink;
                 cbActiveProxy.SelectedItemBackColor = _p.accent;
                 cbActiveProxy.SelectedItemForeColor = Color.White;
                 cbActiveProxy.Invalidate();
             }
 
+            StyleTabs();
             UpdateSysProxyButton();
             Invalidate(true);
         }
@@ -1643,25 +2577,19 @@ namespace AntigravityProxyApp
         private void UpdateSysProxyButton()
         {
             bool on = AppCore.TestSystemProxy();
-            btnSysProxy.Text = on ? "✓ Системный прокси: вкл" : "✕ Системный прокси: выкл";
+            btnSysProxy.Text = on ? "Системный прокси: включён" : "Системный прокси: выключен";
+            btnSysProxy.DotColor = on ? _p.ok : _p.muted;
             if (on)
             {
-                btnSysProxy.Fill = _p.accent;
-                btnSysProxy.Hover = _p.accentHover;
-                btnSysProxy.Pressed = _p.accentPressed;
-                btnSysProxy.BorderWidth = 0;
-                btnSysProxy.ForeColor = Color.White;
+                StylePrimaryButton(btnSysProxy);
+                btnSysProxy.DotColor = Color.White;
             }
             else
             {
-                btnSysProxy.Fill = _p.secondaryFill;
-                btnSysProxy.Hover = _p.secondaryHover;
-                btnSysProxy.Pressed = _p.secondaryPressed;
-                btnSysProxy.BorderColor = _p.secondaryBorder;
-                btnSysProxy.HoverBorderColor = _p.secondaryHoverBorder;
-                btnSysProxy.BorderWidth = 1;
-                btnSysProxy.ForeColor = _p.secondaryText;
+                StyleSecondaryButton(btnSysProxy);
+                btnSysProxy.DotColor = _p.muted;
             }
+            btnSysProxy.Invalidate();
         }
 
         private ProxyItem GetActiveProxy()
@@ -1705,15 +2633,19 @@ namespace AntigravityProxyApp
                 var active = GetActiveProxy();
                 if (active == null || string.IsNullOrEmpty(active.host)) return;
 
-                // Check if Xray is currently listening
                 bool portOk = AppCore.TestPort(10809);
                 var cur = AppCore.GetCurrentXrayServer();
 
-                // ONLY restart Xray if port is NOT open OR config does not match active proxy
-                bool match = (cur != null && cur.host == active.host && cur.port == active.port);
+                bool match = (cur != null
+                    && cur.NormalizedProtocol() == active.NormalizedProtocol()
+                    && (cur.host ?? "") == (active.host ?? "")
+                    && (cur.port ?? "") == (active.port ?? "")
+                    && (cur.user ?? "") == (active.user ?? "")
+                    && (cur.pass ?? "") == (active.pass ?? ""));
+
                 if (!portOk || !match)
                 {
-                    AppCore.WriteXrayConfig(active.host, active.port, active.user, active.pass);
+                    AppCore.WriteXrayConfig(active.host, active.port, active.user, active.pass, active.NormalizedProtocol());
                     AppCore.RestartXray();
                 }
             }
@@ -1732,49 +2664,70 @@ namespace AntigravityProxyApp
             var p = _settings.proxies[newIdx];
             if (p != null && !string.IsNullOrEmpty(p.host))
             {
-                lblStatus.Text = "Переключение прокси…";
+                lblStatus.Text = "Переключение узла…";
                 lblStatus.ForeColor = _p.warn;
+                dotNode.DotColor = _p.warn;
+                dotHeader.DotColor = _p.warn;
+                lblHeaderStatus.Text = "Переключение прокси…";
                 Update();
 
                 await Task.Run(() =>
                 {
-                    AppCore.WriteXrayConfig(p.host, p.port, p.user, p.pass);
+                    AppCore.WriteXrayConfig(p.host, p.port, p.user, p.pass, p.NormalizedProtocol());
                     AppCore.RestartXray();
                 });
 
                 UpdateStatusAsync();
+                if (_activeTab == 2) RefreshServicesAsync();
             }
         }
 
         private async void UpdateStatusAsync()
         {
             var active = GetActiveProxy();
-            string proxyName = (active != null && !string.IsNullOrEmpty(active.name)) ? (active.name + " · ") : "";
-            string where = (active != null && !string.IsNullOrEmpty(active.host)) ? string.Format("{0}:{1}", active.host, active.port) : "—";
+            string proxyName = (active != null && !string.IsNullOrEmpty(active.name)) ? active.name : "Прокси";
+            string proto = (active != null) ? active.NormalizedProtocol().ToUpperInvariant() : "HTTP";
+            string where = (active != null && !string.IsNullOrEmpty(active.host)) ? string.Format("{0}:{1}", active.host, active.port) : "не задан";
 
             if (!AppCore.TestPort(10809))
             {
                 lblStatus.Text = "Прокси не запущен";
                 lblStatus.ForeColor = _p.err;
-                lblDetail.Text = "Откройте «Настройки», проверьте адрес прокси и нажмите «Сохранить».";
+                dotNode.DotColor = _p.err;
+                dotHeader.DotColor = _p.err;
+                lblHeaderStatus.Text = "Xray остановлен";
+                lblDetail.Text = "Откройте «Настройки» и сохраните параметры прокси";
+                lblNodeMeta.Text = "";
                 return;
             }
 
-            lblStatus.Text = "Проверка статуса…";
+            lblStatus.Text = "Проверка соединения…";
             lblStatus.ForeColor = _p.warn;
+            dotNode.DotColor = _p.warn;
+            dotHeader.DotColor = _p.warn;
+            lblHeaderStatus.Text = "Xray :10809 · проверка…";
 
-            var res = await Task.Run(() => AppCore.CheckDirectProxyInfo("127.0.0.1", "10809", "", ""));
+            var res = await Task.Run(() => AppCore.CheckDirectProxyInfo("127.0.0.1", "10809", "", "", "http"));
             if (res.Ok)
             {
                 lblStatus.Text = "Прокси работает";
                 lblStatus.ForeColor = _p.ok;
-                lblDetail.Text = string.Format("Выход: {0} · {1}, {2} · пинг {3} мс\r\nПрокси: {4}{5}", res.Ip, res.Country, res.City, res.PingMs, proxyName, where);
+                dotNode.DotColor = _p.ok;
+                dotHeader.DotColor = _p.ok;
+                string loc = string.IsNullOrEmpty(res.Country) ? "" : string.Format(" · {0}, {1}", res.Country, res.City);
+                lblHeaderStatus.Text = string.Format("Xray активен · {0} ({1} мс)", res.Ip, res.PingMs);
+                lblDetail.Text = string.Format("{0}{1}  |  {2} мс", res.Ip, loc, res.PingMs);
+                lblNodeMeta.Text = string.Format("{0} ({1} · {2})", proxyName, proto, where);
             }
             else
             {
-                lblStatus.Text = "Прокси работает, проверка не удалась";
+                lblStatus.Text = "Xray запущен, выход не отвечает";
                 lblStatus.ForeColor = _p.warn;
-                lblDetail.Text = string.Format("Прокси: {0}{1}", proxyName, where);
+                dotNode.DotColor = _p.warn;
+                dotHeader.DotColor = _p.warn;
+                lblHeaderStatus.Text = "Xray :10809 · нет ответа выхода";
+                lblDetail.Text = string.Format("{0} ({1} · {2})", proxyName, proto, where);
+                lblNodeMeta.Text = res.Error ?? "";
             }
         }
 
@@ -1783,20 +2736,147 @@ namespace AntigravityProxyApp
             string app = AppCore.FindAntigravityApp();
             if (!string.IsNullOrEmpty(app))
             {
-                lblApp.Text = "Antigravity:\r\n" + app;
+                lblApp.Text = app;
                 lblApp.ForeColor = _p.muted;
                 string ls = AppCore.FindLanguageServer(app);
                 var patched = AppCore.TestPatched(ls);
-                if (patched == true) { lblPatch.Text = "Патч применён"; lblPatch.ForeColor = _p.ok; }
-                else if (patched == false) { lblPatch.Text = "Патч не применён"; lblPatch.ForeColor = _p.err; }
-                else { lblPatch.Text = "Патч: не удалось проверить"; lblPatch.ForeColor = _p.muted; }
+                if (patched == true) { lblPatch.Text = "Патч применён"; lblPatch.ForeColor = _p.ok; dotPatch.DotColor = _p.ok; }
+                else if (patched == false) { lblPatch.Text = "Патч не применён"; lblPatch.ForeColor = _p.err; dotPatch.DotColor = _p.err; }
+                else { lblPatch.Text = "Патч: не удалось проверить"; lblPatch.ForeColor = _p.muted; dotPatch.DotColor = _p.muted; }
             }
             else
             {
-                lblApp.Text = "Antigravity не найден";
+                lblApp.Text = "Antigravity не найден в системе";
                 lblApp.ForeColor = _p.err;
-                lblPatch.Text = "language_server не найден";
+                lblPatch.Text = "language_server.exe не найден";
                 lblPatch.ForeColor = _p.muted;
+                dotPatch.DotColor = _p.muted;
+            }
+        }
+
+        private async void RefreshServicesAsync()
+        {
+            btnSrvRefresh.Enabled = false;
+            var snap = await Task.Run(() => AppCore.CollectServices());
+            btnSrvRefresh.Enabled = true;
+
+            // 1. Xray HTTP
+            if (snap.XrayHttpUp)
+            {
+                dotSrvHttp.DotColor = _p.ok;
+                lblSrvHttpVal.Text = snap.XrayPid > 0
+                    ? string.Format("Работает · 127.0.0.1:10809 · PID {0}", snap.XrayPid)
+                    : "Работает · 127.0.0.1:10809";
+                lblSrvHttpVal.ForeColor = _p.ok;
+            }
+            else
+            {
+                dotSrvHttp.DotColor = _p.err;
+                lblSrvHttpVal.Text = "Остановлен (порт 10809 не слушается)";
+                lblSrvHttpVal.ForeColor = _p.err;
+            }
+
+            // 2. Xray SOCKS5
+            if (snap.XraySocksUp)
+            {
+                dotSrvSocks.DotColor = _p.ok;
+                lblSrvSocksVal.Text = "Работает · 127.0.0.1:10808 (TCP + UDP)";
+                lblSrvSocksVal.ForeColor = _p.ok;
+            }
+            else
+            {
+                dotSrvSocks.DotColor = _p.err;
+                lblSrvSocksVal.Text = "Остановлен (порт 10808 не слушается)";
+                lblSrvSocksVal.ForeColor = _p.err;
+            }
+
+            // 3. System Proxy
+            bool ourSys = snap.SysProxyOn && snap.SysProxyServer.Contains("10809");
+            if (ourSys)
+            {
+                dotSrvSys.DotColor = _p.ok;
+                lblSrvSysVal.Text = "Включён · " + snap.SysProxyServer;
+                lblSrvSysVal.ForeColor = _p.ok;
+                btnSrvToggleSys.Text = "Выключить";
+            }
+            else if (snap.SysProxyOn)
+            {
+                dotSrvSys.DotColor = _p.warn;
+                lblSrvSysVal.Text = "Сторонний прокси · " + snap.SysProxyServer;
+                lblSrvSysVal.ForeColor = _p.warn;
+                btnSrvToggleSys.Text = "Переключить";
+            }
+            else
+            {
+                dotSrvSys.DotColor = _p.muted;
+                lblSrvSysVal.Text = "Выключен (прямое соединение Windows)";
+                lblSrvSysVal.ForeColor = _p.muted;
+                btnSrvToggleSys.Text = "Включить";
+            }
+
+            // 4. AGDNS
+            if (snap.AgdnsUp)
+            {
+                dotSrvDns.DotColor = _p.ok;
+                lblSrvDnsVal.Text = "Работает · 127.0.0.1:53 (DoH)";
+                lblSrvDnsVal.ForeColor = _p.ok;
+            }
+            else
+            {
+                dotSrvDns.DotColor = _p.muted;
+                lblSrvDnsVal.Text = "Не запущен (используется системный DNS)";
+                lblSrvDnsVal.ForeColor = _p.muted;
+            }
+
+            // 5. Patch
+            if (snap.PatchApplied == true)
+            {
+                dotSrvPatch.DotColor = _p.ok;
+                lblSrvPatchVal.Text = "Применён (language_server.exe)";
+                lblSrvPatchVal.ForeColor = _p.ok;
+            }
+            else if (snap.PatchApplied == false)
+            {
+                dotSrvPatch.DotColor = _p.err;
+                lblSrvPatchVal.Text = "Не применён";
+                lblSrvPatchVal.ForeColor = _p.err;
+            }
+            else
+            {
+                dotSrvPatch.DotColor = _p.muted;
+                lblSrvPatchVal.Text = string.IsNullOrEmpty(snap.AntigravityPath) ? "Antigravity не найден" : "Не удалось проверить";
+                lblSrvPatchVal.ForeColor = _p.muted;
+            }
+
+            // 6. Active Processes
+            var activeList = new List<string>();
+            if (snap.AntigravityRunning) activeList.Add("Antigravity");
+            if (snap.LanguageServerRunning) activeList.Add("language_server");
+            if (snap.TelegramRunning) activeList.Add("Telegram");
+            if (snap.OpenCodeRunning) activeList.Add("OpenCode");
+
+            if (activeList.Count > 0)
+            {
+                dotSrvProcs.DotColor = _p.ok;
+                lblSrvProcsVal.Text = "Запущены: " + string.Join(", ", activeList.ToArray());
+                lblSrvProcsVal.ForeColor = _p.ink;
+            }
+            else
+            {
+                dotSrvProcs.DotColor = _p.muted;
+                lblSrvProcsVal.Text = "Клиентские приложения сейчас не запущены";
+                lblSrvProcsVal.ForeColor = _p.muted;
+            }
+
+            if (snap.AgUnlockerConflict)
+            {
+                lblSrvConflict.Text = "Внимание: обнаружен процесс ag_dns (AGUnlocker) — может конфликтовать с прокси";
+                lblSrvConflict.ForeColor = _p.warn;
+            }
+            else
+            {
+                lblSrvConflict.Text = "Конфликтующих служб не обнаружено";
+                lblSrvConflict.ForeColor = _p.muted;
             }
         }
 
@@ -1811,6 +2891,7 @@ namespace AntigravityProxyApp
 
             var trayMenu = new ContextMenuStrip();
             var miOpen = trayMenu.Items.Add("Открыть");
+            var miServices = trayMenu.Items.Add("Сервисы");
             var miSettings = trayMenu.Items.Add("Настройки");
             trayMenu.Items.Add(new ToolStripSeparator());
             var miExit = trayMenu.Items.Add("Выход");
@@ -1825,6 +2906,11 @@ namespace AntigravityProxyApp
 
             notifyIcon.DoubleClick += (s, e) => showForm();
             miOpen.Click += (s, e) => showForm();
+            miServices.Click += (s, e) =>
+            {
+                showForm();
+                SwitchTab(2);
+            };
             miSettings.Click += (s, e) =>
             {
                 showForm();
@@ -1842,6 +2928,12 @@ namespace AntigravityProxyApp
         [STAThread]
         public static void Main()
         {
+            try
+            {
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+            }
+            catch { }
+
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (s, e) =>
             {

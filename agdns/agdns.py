@@ -285,7 +285,7 @@ class Resolver:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.timeout = float(cfg.get("timeout", 3.0))
-        self.cache: dict[tuple, tuple[float, bytes, int]] = {}
+        self.cache: dict[tuple, tuple[float, bytes, int, float]] = {}
         self.cache_lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=24, thread_name_prefix="doh")
         self.upstreams = [
@@ -320,7 +320,8 @@ class Resolver:
             hit = self.cache.get(key)
         if hit and hit[0] > now:
             self._bump("cache_hits")
-            return self._finish(self._from_cache(wire, hit[1], hit[2]), udp)
+            elapsed = max(0, int(now - hit[3]))
+            return self._finish(self._from_cache(wire, hit[1], hit[2], elapsed), udp)
 
         data = self._query_doh(wire)
         if data is None:
@@ -340,7 +341,7 @@ class Resolver:
             with self.cache_lock:
                 if len(self.cache) > 8192:
                     self._prune(now)
-                self.cache[key] = (now + ttl, data, parsed["qend"])
+                self.cache[key] = (now + ttl, data, parsed["qend"], now)
         return self._finish(self._with_id(data, wire), udp)
 
     # -- internals
@@ -354,15 +355,37 @@ class Resolver:
         return wire[:2] + data[2:]
 
     @staticmethod
-    def _from_cache(wire: bytes, data: bytes, cached_qend: int) -> bytes:
+    def _decrement_ttls(data: bytes, qend: int, elapsed: int) -> bytes:
+        if elapsed <= 0 or len(data) < 12:
+            return data
+        try:
+            _qid, _flags, _qd, an, ns, ar = struct.unpack("!HHHHHH", data[:12])
+            buf = bytearray(data)
+            off = qend
+            for _ in range(an + ns + ar):
+                off = skip_name(data, off)
+                if off + 10 > len(data):
+                    break
+                rtype, _rclass, ttl, rdlen = struct.unpack("!HHIH", data[off:off + 10])
+                if rtype != 41:  # не трогать OPT (EDNS0)
+                    new_ttl = max(1, ttl - elapsed)
+                    struct.pack_into("!I", buf, off + 4, new_ttl)
+                off += 10 + rdlen
+            return bytes(buf)
+        except Exception:
+            return data
+
+    @staticmethod
+    def _from_cache(wire: bytes, data: bytes, cached_qend: int, elapsed: int = 0) -> bytes:
+        adjusted = Resolver._decrement_ttls(data, cached_qend, elapsed)
         try:
             qend = question_end(wire)
+            if qend == cached_qend:
+                # Сохраняем оригинальный ID и регистр имени вопроса из клиентского запроса
+                return wire[:2] + adjusted[2:12] + wire[12:qend] + adjusted[cached_qend:]
         except Exception:
-            return Resolver._with_id(data, wire)
-        if qend == cached_qend:
-            return Resolver._with_id(data, wire)
-        # имя в запросе другой длины — отдаём как есть с новым ID
-        return Resolver._with_id(data, wire)
+            pass
+        return Resolver._with_id(adjusted, wire)
 
     @staticmethod
     def _servfail(wire: bytes) -> bytes:
@@ -375,7 +398,7 @@ class Resolver:
 
     def _finish(self, data: bytes, udp: bool) -> bytes:
         if udp and len(data) > MAX_UDP_PAYLOAD:
-            return make_truncated(data[:12] + data[12:])
+            return make_truncated(data)
         return data
 
     def _ttl(self, parsed: dict) -> float:
