@@ -66,7 +66,7 @@ namespace AntigravityProxySetup
 
         public SetupForm()
         {
-            Text = "Установка Antigravity Proxy v1.3.1";
+            Text = "Установка Antigravity Proxy v1.3.2";
             Size = new Size(520, 430);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;

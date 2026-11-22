@@ -1,5 +1,5 @@
 {
-  "version": "1.3.1",
-  "downloadUrl": "https://raw.githubusercontent.com/dz633187-star/antigravity-proxy/main/client/AntigravityProxy.exe",
-  "notes": "Автономный инсталлятор AntigravityProxySetup.exe (вшиты актуальные бинарники) и улучшенное определение патча Antigravity."
+  "version": "1.3.2",
+  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.2/AntigravityProxy.exe",
+  "notes": "Исправлен парсинг GitHub Releases API (ArrayList) в проверке обновлений и чтении конфига Xray."
 }

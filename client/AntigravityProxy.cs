@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -506,7 +507,7 @@ namespace AntigravityProxyApp
 
     public class AppCore
     {
-        public const string AppVersion = "1.3.1";
+        public const string AppVersion = "1.3.2";
         private const string RepoOwner = "dz633187-star";
         private const string RepoName = "antigravity-proxy";
 
@@ -740,10 +741,12 @@ namespace AntigravityProxyApp
                     string tag = d["tag_name"].ToString();
                     Version v = ParseVersionSafe(tag);
                     string dl = "";
-                    if (d.ContainsKey("assets") && d["assets"] is object[])
+                    if (d.ContainsKey("assets") && d["assets"] is IEnumerable)
                     {
-                        foreach (Dictionary<string, object> asset in (object[])d["assets"])
+                        foreach (object item in (IEnumerable)d["assets"])
                         {
+                            var asset = item as Dictionary<string, object>;
+                            if (asset == null) continue;
                             string aname = (asset.ContainsKey("name") && asset["name"] != null) ? asset["name"].ToString() : "";
                             if (aname.Equals("AntigravityProxy.exe", StringComparison.OrdinalIgnoreCase))
                             {
@@ -751,6 +754,10 @@ namespace AntigravityProxyApp
                                 break;
                             }
                         }
+                    }
+                    if (string.IsNullOrEmpty(dl) && !string.IsNullOrEmpty(tag))
+                    {
+                        dl = string.Format("https://github.com/{0}/{1}/releases/download/{2}/AntigravityProxy.exe", RepoOwner, RepoName, tag);
                     }
                     if (v > bestVer && !string.IsNullOrEmpty(dl))
                     {
@@ -965,44 +972,53 @@ namespace AntigravityProxyApp
                 var ser = new JavaScriptSerializer();
                 var dict = ser.Deserialize<Dictionary<string, object>>(json);
                 if (dict == null || !dict.ContainsKey("outbounds")) return null;
-                var outbounds = dict["outbounds"] as object[];
+                var outbounds = dict["outbounds"] as IEnumerable;
                 if (outbounds == null) return null;
-                foreach (Dictionary<string, object> ob in outbounds)
+                foreach (object obObj in outbounds)
                 {
-                    if (!ob.ContainsKey("protocol") || !ob.ContainsKey("settings")) continue;
+                    var ob = obObj as Dictionary<string, object>;
+                    if (ob == null || !ob.ContainsKey("protocol") || !ob.ContainsKey("settings")) continue;
                     string proto = (ob["protocol"] ?? "").ToString().ToLowerInvariant();
                     if (proto != "http" && proto != "socks") continue;
 
                     var settings = ob["settings"] as Dictionary<string, object>;
                     if (settings != null && settings.ContainsKey("servers"))
                     {
-                        var servers = settings["servers"] as object[];
-                        if (servers != null && servers.Length > 0)
+                        var servers = settings["servers"] as IEnumerable;
+                        if (servers != null)
                         {
-                            var srv = servers[0] as Dictionary<string, object>;
-                            string u = "", p = "";
-                            if (srv != null && srv.ContainsKey("users"))
+                            Dictionary<string, object> srv = null;
+                            foreach (object sObj in servers) { srv = sObj as Dictionary<string, object>; break; }
+                            if (srv != null)
                             {
-                                var users = srv["users"] as object[];
-                                if (users != null && users.Length > 0)
+                                string u = "", p = "";
+                                if (srv.ContainsKey("users"))
                                 {
-                                    var usr = users[0] as Dictionary<string, object>;
-                                    if (usr != null)
+                                    var users = srv["users"] as IEnumerable;
+                                    if (users != null)
                                     {
-                                        if (usr.ContainsKey("user") && usr["user"] != null) u = usr["user"].ToString();
-                                        if (usr.ContainsKey("pass") && usr["pass"] != null) p = usr["pass"].ToString();
+                                        foreach (object uObj in users)
+                                        {
+                                            var usr = uObj as Dictionary<string, object>;
+                                            if (usr != null)
+                                            {
+                                                if (usr.ContainsKey("user") && usr["user"] != null) u = usr["user"].ToString();
+                                                if (usr.ContainsKey("pass") && usr["pass"] != null) p = usr["pass"].ToString();
+                                            }
+                                            break;
+                                        }
                                     }
                                 }
+                                return new ProxyItem
+                                {
+                                    name = "Основной",
+                                    protocol = proto,
+                                    host = (srv.ContainsKey("address") && srv["address"] != null) ? srv["address"].ToString() : "",
+                                    port = (srv.ContainsKey("port") && srv["port"] != null) ? srv["port"].ToString() : "8000",
+                                    user = u,
+                                    pass = p
+                                };
                             }
-                            return new ProxyItem
-                            {
-                                name = "Основной",
-                                protocol = proto,
-                                host = (srv != null && srv.ContainsKey("address") && srv["address"] != null) ? srv["address"].ToString() : "",
-                                port = (srv != null && srv.ContainsKey("port") && srv["port"] != null) ? srv["port"].ToString() : "8000",
-                                user = u,
-                                pass = p
-                            };
                         }
                     }
                 }
