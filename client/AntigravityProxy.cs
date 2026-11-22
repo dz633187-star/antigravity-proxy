@@ -507,7 +507,7 @@ namespace AntigravityProxyApp
 
     public class AppCore
     {
-        public const string AppVersion = "1.3.2";
+        public const string AppVersion = "1.3.3";
         private const string RepoOwner = "dz633187-star";
         private const string RepoName = "antigravity-proxy";
 
@@ -1714,12 +1714,29 @@ namespace AntigravityProxyApp
 
         public static bool? TestAntigravityPatched(string appPath)
         {
+            if (string.IsNullOrEmpty(appPath)) return null;
+
+            // 1. Open AG Patcher для Antigravity 2.0+ патчит байты hasValidAuth и создаёт *.agybak бэкапы
+            try
+            {
+                string dir = Path.GetDirectoryName(appPath);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    if (Directory.GetFiles(dir, "*.agybak", SearchOption.AllDirectories).Length > 0)
+                        return true;
+                }
+            }
+            catch { }
+
             var servers = FindLanguageServers(appPath);
             if (servers.Count == 0) return null;
 
             bool anyChecked = false;
             foreach (var ls in servers)
             {
+                if (File.Exists(ls + ".agybak") || File.Exists(ls + ".bak") || File.Exists(ls + ".orig"))
+                    return true;
+
                 var res = TestPatched(ls);
                 if (res == true) return true;
                 if (res == false) anyChecked = true;

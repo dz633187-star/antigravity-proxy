@@ -1,5 +1,5 @@
 {
-  "version": "1.3.2",
-  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.2/AntigravityProxy.exe",
-  "notes": "Исправлен парсинг GitHub Releases API (ArrayList) в проверке обновлений и чтении конфига Xray."
+  "version": "1.3.3",
+  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.3/AntigravityProxy.exe",
+  "notes": "Поддержка определения новых бинарных патчей Open AG Patcher для Antigravity 2.0+ (*.agybak / hasValidAuth)."
 }
