@@ -16,8 +16,8 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 
-echo [3/3] Compiling AntigravityProxySetup.exe...
-"%CSC%" /nologo /target:winexe /win32icon:"%~dp0AntigravityProxy.ico" /r:Microsoft.CSharp.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /out:"%~dp0AntigravityProxySetup.exe" "%~dp0Installer.cs"
+echo [3/3] Compiling AntigravityProxySetup.exe (self-contained)...
+"%CSC%" /nologo /target:winexe /win32icon:"%~dp0AntigravityProxy.ico" /r:Microsoft.CSharp.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /resource:"%~dp0AntigravityProxy.exe",AntigravityProxy.exe /resource:"%~dp0Uninstall.exe",Uninstall.exe /resource:"%~dp0AntigravityProxy.ico",AntigravityProxy.ico /out:"%~dp0AntigravityProxySetup.exe" "%~dp0Installer.cs"
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to compile AntigravityProxySetup.exe
     exit /b %errorlevel%

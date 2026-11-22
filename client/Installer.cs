@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -65,7 +66,7 @@ namespace AntigravityProxySetup
 
         public SetupForm()
         {
-            Text = "Установка Antigravity Proxy v1.3.0";
+            Text = "Установка Antigravity Proxy v1.3.1";
             Size = new Size(520, 430);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -225,8 +226,7 @@ namespace AntigravityProxySetup
 
             try
             {
-                string ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AntigravityProxy.ico");
-                if (File.Exists(ico)) Icon = new Icon(ico);
+                Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             }
             catch { }
         }
@@ -268,21 +268,31 @@ namespace AntigravityProxySetup
                     // 2. Создаем целевую папку
                     if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
 
-                    // 3. Копируем файлы приложения
-                    string[] filesToCopy = new string[]
+                    // 3. Распаковываем встроенные файлы приложения (self-contained)
+                    var asm = Assembly.GetExecutingAssembly();
+                    string[] embeddedFiles = new string[]
                     {
                         "AntigravityProxy.exe",
-                        "AntigravityProxy.ico",
                         "Uninstall.exe",
-                        "AntigravityProxy.cs",
-                        "install-app.ps1"
+                        "AntigravityProxy.ico"
                     };
 
-                    foreach (var f in filesToCopy)
+                    foreach (var f in embeddedFiles)
                     {
-                        string src = Path.Combine(sourceDir, f);
                         string dst = Path.Combine(targetDir, f);
-                        if (File.Exists(src))
+                        using (var stream = asm.GetManifestResourceStream(f))
+                        {
+                            if (stream != null)
+                            {
+                                using (var fs = File.Create(dst))
+                                {
+                                    stream.CopyTo(fs);
+                                }
+                                continue;
+                            }
+                        }
+                        string src = Path.Combine(sourceDir, f);
+                        if (File.Exists(src) && !string.Equals(src, dst, StringComparison.OrdinalIgnoreCase))
                         {
                             File.Copy(src, dst, true);
                         }

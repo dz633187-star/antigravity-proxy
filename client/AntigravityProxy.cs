@@ -506,7 +506,7 @@ namespace AntigravityProxyApp
 
     public class AppCore
     {
-        public const string AppVersion = "1.3.0";
+        public const string AppVersion = "1.3.1";
         private const string RepoOwner = "dz633187-star";
         private const string RepoName = "antigravity-proxy";
 
@@ -1550,19 +1550,23 @@ namespace AntigravityProxyApp
             return snap;
         }
 
-        public static string FindAntigravityApp()
+        public static List<string> FindAllAntigravityApps()
         {
-            // 1. Сначала проверим запущенный процесс Antigravity (если установлен в нестандартную папку)
+            var found = new List<string>();
+            Action<string> addUnique = p =>
+            {
+                if (string.IsNullOrEmpty(p) || !File.Exists(p)) return;
+                foreach (var ex in found)
+                    if (string.Equals(ex, p, StringComparison.OrdinalIgnoreCase)) return;
+                found.Add(p);
+            };
+
+            // 1. Запущенный процесс Antigravity (приоритет)
             try
             {
                 foreach (var p in Process.GetProcessesByName("Antigravity"))
                 {
-                    try
-                    {
-                        string path = p.MainModule.FileName;
-                        if (!string.IsNullOrEmpty(path) && File.Exists(path)) return path;
-                    }
-                    catch { }
+                    try { addUnique(p.MainModule.FileName); } catch { }
                 }
             }
             catch { }
@@ -1581,11 +1585,21 @@ namespace AntigravityProxyApp
                 Path.Combine(prog, @"Antigravity IDE\Antigravity IDE.exe"),
                 Path.Combine(prog86, @"Antigravity\Antigravity.exe")
             };
-            foreach (var c in candidates)
+            foreach (var c in candidates) addUnique(c);
+
+            return found;
+        }
+
+        public static string FindAntigravityApp()
+        {
+            var all = FindAllAntigravityApps();
+            if (all.Count == 0) return "";
+            // Предпочитаем установку, у которой реально есть language_server*.exe
+            foreach (var a in all)
             {
-                if (!string.IsNullOrEmpty(c) && File.Exists(c)) return c;
+                if (FindLanguageServers(a).Count > 0) return a;
             }
-            return "";
+            return all[0];
         }
 
         public static List<string> FindLanguageServers(string appPath)
@@ -1638,10 +1652,15 @@ namespace AntigravityProxyApp
             if (string.IsNullOrEmpty(lsPath) || !File.Exists(lsPath)) return null;
             try
             {
-                byte[] needle = Encoding.ASCII.GetBytes("inexigible");
-                int overlap = needle.Length;
+                byte[] needlePatched = Encoding.ASCII.GetBytes("inexigible");
+                byte[] needleUnpatched = Encoding.ASCII.GetBytes("ineligible");
+                byte[] needleProxyEnv = Encoding.ASCII.GetBytes("AG_LS_PROXY");
+                int overlap = 16;
                 const int chunkSize = 4 * 1024 * 1024;
                 byte[] buf = new byte[chunkSize + overlap];
+
+                bool foundIneligible = false;
+                bool foundProxyEnv = false;
 
                 using (var fs = new FileStream(lsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 {
@@ -1650,7 +1669,9 @@ namespace AntigravityProxyApp
                     while ((read = fs.Read(buf, carry, chunkSize)) > 0)
                     {
                         int total = carry + read;
-                        if (ContainsBytes(buf, total, needle)) return true;
+                        if (ContainsBytes(buf, total, needlePatched)) return true;
+                        if (!foundIneligible && ContainsBytes(buf, total, needleUnpatched)) foundIneligible = true;
+                        if (!foundProxyEnv && ContainsBytes(buf, total, needleProxyEnv)) foundProxyEnv = true;
 
                         if (total >= overlap)
                         {
@@ -1663,7 +1684,10 @@ namespace AntigravityProxyApp
                         }
                     }
                 }
-                return false;
+                // Если строка ineligible полностью убрана, а AG_LS_PROXY присутствует — бинарник пропатчен
+                if (!foundIneligible && foundProxyEnv) return true;
+                if (foundIneligible) return false;
+                return null;
             }
             catch (Exception ex)
             {
