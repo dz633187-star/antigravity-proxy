@@ -80,6 +80,7 @@ namespace AntigravityProxyApp
         public int activeProxyIndex { get; set; }
         public List<ProxyItem> proxies { get; set; }
         public List<CustomAppItem> customApps { get; set; }
+        public bool? autoCheckUpdates { get; set; }
 
         public AppSettings()
         {
@@ -87,6 +88,7 @@ namespace AntigravityProxyApp
             activeProxyIndex = 0;
             proxies = new List<ProxyItem>();
             customApps = new List<CustomAppItem>();
+            autoCheckUpdates = true;
         }
     }
 
@@ -492,8 +494,22 @@ namespace AntigravityProxyApp
         public bool AgUnlockerConflict { get; set; }
     }
 
+    public class UpdateInfo
+    {
+        public bool Available { get; set; }
+        public string CurrentVersion { get; set; }
+        public string LatestVersion { get; set; }
+        public string DownloadUrl { get; set; }
+        public string Notes { get; set; }
+        public string Error { get; set; }
+    }
+
     public class AppCore
     {
+        public const string AppVersion = "1.3.0";
+        private const string RepoOwner = "dz633187-star";
+        private const string RepoName = "antigravity-proxy";
+
         [DllImport("wininet.dll", SetLastError = true)]
         private static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
 
@@ -636,6 +652,239 @@ namespace AntigravityProxyApp
             using (var dst = File.Create(destinationPath))
             {
                 src.CopyTo(dst);
+            }
+        }
+
+        private static string FetchText(string url, IWebProxy proxy, int timeoutMs)
+        {
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.UserAgent = "AntigravityProxy/" + AppVersion;
+            req.Accept = "application/vnd.github+json, application/json";
+            req.AllowAutoRedirect = true;
+            req.Timeout = timeoutMs;
+            req.ReadWriteTimeout = timeoutMs;
+            if (proxy != null) req.Proxy = proxy;
+
+            using (var resp = req.GetResponse())
+            using (var reader = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+            {
+                return reader.ReadToEnd();
+            }
+        }
+
+        private static string FetchTextWithFallback(string url, int timeoutMs = 8000)
+        {
+            try
+            {
+                return FetchText(url, null, timeoutMs);
+            }
+            catch (Exception ex1)
+            {
+                Log("FetchText direct (" + url + "): " + ex1.Message);
+                if (TestPort(10809, 250))
+                {
+                    return FetchText(url, new WebProxy("127.0.0.1", 10809), timeoutMs);
+                }
+                throw;
+            }
+        }
+
+        private static Version ParseVersionSafe(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return new Version(0, 0, 0);
+            string clean = raw.Trim().TrimStart('v', 'V');
+            int dash = clean.IndexOf('-');
+            if (dash > 0) clean = clean.Substring(0, dash);
+            Version v;
+            if (Version.TryParse(clean, out v)) return v;
+            var m = Regex.Match(clean, @"(\d+)\.(\d+)(?:\.(\d+))?");
+            if (m.Success)
+            {
+                int maj = int.Parse(m.Groups[1].Value);
+                int min = int.Parse(m.Groups[2].Value);
+                int bld = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0;
+                return new Version(maj, min, bld);
+            }
+            return new Version(0, 0, 0);
+        }
+
+        public static UpdateInfo CheckForUpdates()
+        {
+            var current = ParseVersionSafe(AppVersion);
+            var info = new UpdateInfo
+            {
+                Available = false,
+                CurrentVersion = AppVersion,
+                LatestVersion = AppVersion,
+                DownloadUrl = "",
+                Notes = ""
+            };
+
+            string bestVerStr = AppVersion;
+            Version bestVer = current;
+            string bestUrl = "";
+            string bestNotes = "";
+            string lastErr = "";
+            bool anySuccess = false;
+
+            // 1. Проверяем GitHub Releases API
+            try
+            {
+                string apiUrl = string.Format("https://api.github.com/repos/{0}/{1}/releases/latest", RepoOwner, RepoName);
+                string json = FetchTextWithFallback(apiUrl, 8000);
+                var ser = new JavaScriptSerializer();
+                var d = ser.Deserialize<Dictionary<string, object>>(json);
+                if (d != null && d.ContainsKey("tag_name") && d["tag_name"] != null)
+                {
+                    anySuccess = true;
+                    string tag = d["tag_name"].ToString();
+                    Version v = ParseVersionSafe(tag);
+                    string dl = "";
+                    if (d.ContainsKey("assets") && d["assets"] is object[])
+                    {
+                        foreach (Dictionary<string, object> asset in (object[])d["assets"])
+                        {
+                            string aname = (asset.ContainsKey("name") && asset["name"] != null) ? asset["name"].ToString() : "";
+                            if (aname.Equals("AntigravityProxy.exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                dl = (asset.ContainsKey("browser_download_url") && asset["browser_download_url"] != null) ? asset["browser_download_url"].ToString() : "";
+                                break;
+                            }
+                        }
+                    }
+                    if (v > bestVer && !string.IsNullOrEmpty(dl))
+                    {
+                        bestVer = v;
+                        bestVerStr = tag.TrimStart('v', 'V');
+                        bestUrl = dl;
+                        bestNotes = (d.ContainsKey("body") && d["body"] != null) ? d["body"].ToString() : "";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lastErr = ex.Message;
+                Log("CheckForUpdates releases: " + ex.Message);
+            }
+
+            // 2. Проверяем client/version.json в ветке main (подхватывает обновления даже без нового тега)
+            try
+            {
+                string verUrl = string.Format("https://raw.githubusercontent.com/{0}/{1}/main/client/version.json?t={2}", RepoOwner, RepoName, DateTime.UtcNow.Ticks);
+                string json = FetchTextWithFallback(verUrl, 8000);
+                var ser = new JavaScriptSerializer();
+                var d = ser.Deserialize<Dictionary<string, object>>(json);
+                if (d != null && d.ContainsKey("version") && d["version"] != null)
+                {
+                    anySuccess = true;
+                    string vStr = d["version"].ToString().Trim().TrimStart('v', 'V');
+                    Version v = ParseVersionSafe(vStr);
+                    string dl = (d.ContainsKey("downloadUrl") && d["downloadUrl"] != null)
+                        ? d["downloadUrl"].ToString()
+                        : string.Format("https://raw.githubusercontent.com/{0}/{1}/main/client/AntigravityProxy.exe", RepoOwner, RepoName);
+                    if (v > bestVer)
+                    {
+                        bestVer = v;
+                        bestVerStr = vStr;
+                        bestUrl = dl;
+                        bestNotes = (d.ContainsKey("notes") && d["notes"] != null) ? d["notes"].ToString() : "";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (string.IsNullOrEmpty(lastErr)) lastErr = ex.Message;
+                Log("CheckForUpdates version.json: " + ex.Message);
+            }
+
+            if (!anySuccess)
+            {
+                info.Error = "Не удалось проверить обновления: " + lastErr;
+                return info;
+            }
+
+            info.LatestVersion = bestVerStr;
+            if (bestVer > current && !string.IsNullOrEmpty(bestUrl))
+            {
+                info.Available = true;
+                info.DownloadUrl = bestUrl;
+                info.Notes = bestNotes;
+            }
+            return info;
+        }
+
+        public static bool DownloadAndApplyUpdate(string downloadUrl, out string error)
+        {
+            error = "";
+            string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+            string dir = Path.GetDirectoryName(currentExe);
+            string stagedExe = Path.Combine(dir, "AntigravityProxy.exe.new");
+
+            try
+            {
+                bool downloaded = false;
+                string dlErr = "";
+                try
+                {
+                    DownloadFile(downloadUrl, stagedExe, null);
+                    downloaded = true;
+                }
+                catch (Exception ex1)
+                {
+                    dlErr = ex1.Message;
+                    if (TestPort(10809, 250))
+                    {
+                        DownloadFile(downloadUrl, stagedExe, new WebProxy("127.0.0.1", 10809));
+                        downloaded = true;
+                    }
+                }
+
+                if (!downloaded || !File.Exists(stagedExe))
+                {
+                    error = "Не удалось скачать обновление: " + dlErr;
+                    return false;
+                }
+
+                // Проверяем валидность PE-файла (MZ + минимальный размер)
+                var fi = new FileInfo(stagedExe);
+                if (fi.Length < 30000)
+                {
+                    try { File.Delete(stagedExe); } catch { }
+                    error = "Скачанный файл повреждён (слишком малый размер).";
+                    return false;
+                }
+                byte[] header = new byte[2];
+                using (var fs = File.OpenRead(stagedExe))
+                {
+                    if (fs.Read(header, 0, 2) < 2 || header[0] != 0x4D || header[1] != 0x5A)
+                    {
+                        error = "Скачанный файл не является исполняемым файлом Windows.";
+                        return false;
+                    }
+                }
+
+                // Запускаем скрытый скрипт замены exe. Xray при этом продолжает работать без обрыва интернета!
+                string cmdArgs = string.Format(
+                    "/c ping 127.0.0.1 -n 3 > nul & move /y \"{0}\" \"{1}\" & start \"\" \"{1}\"",
+                    stagedExe, currentExe);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = cmdArgs,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                Process.Start(psi);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { if (File.Exists(stagedExe)) File.Delete(stagedExe); } catch { }
+                error = ex.Message;
+                Log("DownloadAndApplyUpdate: " + ex.ToString());
+                return false;
             }
         }
 
@@ -1562,6 +1811,7 @@ namespace AntigravityProxyApp
         private UiButton btnAdd, btnDel, btnActive, btnTest, btnSave, btnCancel;
         private TextBox tbName, tbH, tbPt, tbU, tbPw;
         private RadioButton rbDark, rbLight;
+        private CheckBox chkAutoUpdate;
         private Label lblNote;
         private bool _updatingCb = false;
 
@@ -1581,7 +1831,7 @@ namespace AntigravityProxyApp
             _currentIdx = _localActiveIdx;
 
             Text = "Настройки";
-            ClientSize = new Size(476, 516);
+            ClientSize = new Size(476, 546);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -1711,7 +1961,7 @@ namespace AntigravityProxyApp
             var themeCard = new UiCard
             {
                 Location = new Point(20, 352),
-                Size = new Size(436, 76),
+                Size = new Size(436, 106),
                 FillColor = _p.card,
                 BorderColor = _p.border,
                 Radius = 10
@@ -1720,23 +1970,34 @@ namespace AntigravityProxyApp
 
             themeCard.Controls.Add(new Label
             {
-                Text = "Тема оформления",
+                Text = "Оформление и обновления",
                 Location = new Point(16, 12),
-                Size = new Size(200, 20),
+                Size = new Size(240, 20),
                 ForeColor = _p.ink,
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI Semibold", 9.5f)
             });
-            rbDark = new RadioButton { Text = "Тёмная", Location = new Point(18, 40), Size = new Size(110, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
-            rbLight = new RadioButton { Text = "Светлая", Location = new Point(140, 40), Size = new Size(110, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
+            rbDark = new RadioButton { Text = "Тёмная", Location = new Point(18, 38), Size = new Size(110, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
+            rbLight = new RadioButton { Text = "Светлая", Location = new Point(140, 38), Size = new Size(110, 22), ForeColor = _p.ink, BackColor = Color.Transparent };
             if (_settings.theme == "dark") rbDark.Checked = true; else rbLight.Checked = true;
             themeCard.Controls.Add(rbDark);
             themeCard.Controls.Add(rbLight);
 
+            chkAutoUpdate = new CheckBox
+            {
+                Text = "Проверять обновления автоматически при запуске",
+                Location = new Point(18, 70),
+                Size = new Size(400, 22),
+                ForeColor = _p.muted,
+                BackColor = Color.Transparent,
+                Checked = (_settings.autoCheckUpdates != false)
+            };
+            themeCard.Controls.Add(chkAutoUpdate);
+
             btnSave = new UiButton
             {
                 Text = "Сохранить изменения",
-                Location = new Point(20, 452),
+                Location = new Point(20, 480),
                 Size = new Size(184, 40),
                 Radius = 7,
                 Fill = _p.accent,
@@ -1748,7 +2009,7 @@ namespace AntigravityProxyApp
             };
             Controls.Add(btnSave);
 
-            btnCancel = new UiButton { Text = "Отмена", Location = new Point(214, 452), Size = new Size(110, 40), Radius = 7 };
+            btnCancel = new UiButton { Text = "Отмена", Location = new Point(214, 480), Size = new Size(110, 40), Radius = 7 };
             StyleSec(btnCancel);
             Controls.Add(btnCancel);
 
@@ -1878,6 +2139,7 @@ namespace AntigravityProxyApp
                 _settings.proxies = _localProxies;
                 _settings.activeProxyIndex = _localActiveIdx;
                 _settings.theme = rbDark.Checked ? "dark" : "light";
+                _settings.autoCheckUpdates = chkAutoUpdate.Checked;
                 AppCore.SaveSettings(_settings);
 
                 SettingsChanged = true;
@@ -1980,7 +2242,8 @@ namespace AntigravityProxyApp
         // Header
         private Label lblTitle, lblHeaderStatus;
         private UiStatusDot dotHeader;
-        private UiButton btnSettings, btnTheme;
+        private UiButton btnUpdate, btnSettings, btnTheme;
+        private UpdateInfo _pendingUpdate;
 
         // Tab bar
         private UiCard tabBar;
@@ -2012,8 +2275,8 @@ namespace AntigravityProxyApp
         private Label lblSrvHttp, lblSrvHttpVal, lblSrvSocks, lblSrvSocksVal;
         private Label lblSrvSys, lblSrvSysVal, lblSrvDns, lblSrvDnsVal;
         private Label lblSrvPatch, lblSrvPatchVal;
-        private Label lblSrvProcsTitle, lblSrvProcsVal, lblSrvConflict;
-        private UiButton btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh;
+        private Label lblSrvProcsTitle, lblSrvProcsVal, lblSrvConflict, lblVersion;
+        private UiButton btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate;
 
         private NotifyIcon notifyIcon;
 
@@ -2050,6 +2313,11 @@ namespace AntigravityProxyApp
                 UpdatePatch();
                 await Task.Run(() => EnsureActiveProxySynced());
                 UpdateStatusAsync();
+                if (_settings.autoCheckUpdates != false)
+                {
+                    await Task.Delay(2500);
+                    CheckUpdatesAsync(true);
+                }
             };
 
             Resize += (s, e) =>
@@ -2093,8 +2361,10 @@ namespace AntigravityProxyApp
             Controls.Add(dotHeader);
             Controls.Add(lblHeaderStatus);
 
+            btnUpdate = new UiButton { Text = "Обновить", Location = new Point(226, 16), Size = new Size(90, 32), Radius = 7, Visible = false };
             btnSettings = new UiButton { Text = "Настройки", Location = new Point(324, 16), Size = new Size(100, 32), Radius = 7 };
             btnTheme = new UiButton { Text = "Светлая", Location = new Point(432, 16), Size = new Size(90, 32), Radius = 7 };
+            Controls.Add(btnUpdate);
             Controls.Add(btnSettings);
             Controls.Add(btnTheme);
 
@@ -2314,8 +2584,19 @@ namespace AntigravityProxyApp
             cardSrvProcs.Controls.Add(lblSrvProcsVal);
             cardSrvProcs.Controls.Add(lblSrvConflict);
 
-            btnSrvRefresh = new UiButton { Text = "Обновить состояние сервисов", Location = new Point(18, 398), Size = new Size(220, 34), Radius = 7 };
+            btnSrvRefresh = new UiButton { Text = "Обновить статусы", Location = new Point(18, 398), Size = new Size(164, 34), Radius = 7 };
+            btnCheckUpdate = new UiButton { Text = "Проверить обновления", Location = new Point(190, 398), Size = new Size(184, 34), Radius = 7 };
+            lblVersion = new Label
+            {
+                Text = "v" + AppCore.AppVersion,
+                Location = new Point(386, 405),
+                Size = new Size(136, 20),
+                Font = new Font("Consolas", 8.5f),
+                TextAlign = ContentAlignment.MiddleRight
+            };
             pnlServices.Controls.Add(btnSrvRefresh);
+            pnlServices.Controls.Add(btnCheckUpdate);
+            pnlServices.Controls.Add(lblVersion);
         }
 
         private void WireEvents()
@@ -2644,6 +2925,18 @@ namespace AntigravityProxyApp
 
             // === TAB 2: SERVICES ===
             btnSrvRefresh.Click += (s, e) => RefreshServicesAsync();
+            btnCheckUpdate.Click += (s, e) => CheckUpdatesAsync(false);
+            btnUpdate.Click += (s, e) =>
+            {
+                if (_pendingUpdate != null && _pendingUpdate.Available)
+                {
+                    PromptAndInstallUpdateAsync(_pendingUpdate);
+                }
+                else
+                {
+                    CheckUpdatesAsync(false);
+                }
+            };
 
             btnSrvRestartXray.Click += async (s, e) =>
             {
@@ -2805,7 +3098,7 @@ namespace AntigravityProxyApp
             Label[] inkLabels = { lblTitle, lblStatus, lblRunTitle, lblSavedTitle, lblSrvHttp, lblSrvSocks, lblSrvSys, lblSrvDns, lblSrvPatch, lblSrvProcsTitle };
             foreach (var l in inkLabels) { l.ForeColor = _p.ink; l.BackColor = Color.Transparent; }
 
-            Label[] mutedLabels = { lblHeaderStatus, lblDetail, lblNodeMeta, lblPatch, lblApp, lblRunPath, lblRunArgs, lblRunFeedback, lblSrvHttpVal, lblSrvSocksVal, lblSrvSysVal, lblSrvDnsVal, lblSrvPatchVal, lblSrvProcsVal, lblSrvConflict };
+            Label[] mutedLabels = { lblHeaderStatus, lblDetail, lblNodeMeta, lblPatch, lblApp, lblRunPath, lblRunArgs, lblRunFeedback, lblSrvHttpVal, lblSrvSocksVal, lblSrvSysVal, lblSrvDnsVal, lblSrvPatchVal, lblSrvProcsVal, lblSrvConflict, lblVersion };
             foreach (var l in mutedLabels) { l.ForeColor = _p.muted; l.BackColor = Color.Transparent; }
 
             chkChromiumFlag.ForeColor = _p.muted;
@@ -2823,11 +3116,12 @@ namespace AntigravityProxyApp
             lbSavedApps.SelectedItemBackColor = _p.accent;
             lbSavedApps.SelectedItemForeColor = Color.White;
 
-            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh };
+            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate };
             foreach (var b in secButtons) StyleSecondaryButton(b);
 
             StylePrimaryButton(btnStart);
             StylePrimaryButton(btnRunAny);
+            StylePrimaryButton(btnUpdate);
 
             btnTheme.Text = (_settings.theme == "dark") ? "Светлая" : "Тёмная";
 
@@ -3263,6 +3557,106 @@ namespace AntigravityProxyApp
             }
         }
 
+        private async void CheckUpdatesAsync(bool silent)
+        {
+            if (btnCheckUpdate != null)
+            {
+                btnCheckUpdate.Enabled = false;
+                if (!silent) btnCheckUpdate.Text = "Проверка…";
+            }
+
+            var info = await Task.Run(() => AppCore.CheckForUpdates());
+
+            if (btnCheckUpdate != null)
+            {
+                btnCheckUpdate.Enabled = true;
+                btnCheckUpdate.Text = "Проверить обновления";
+            }
+
+            if (info == null) return;
+
+            if (!string.IsNullOrEmpty(info.Error))
+            {
+                if (!silent)
+                {
+                    MessageBox.Show(info.Error, "Обновления — Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            if (info.Available)
+            {
+                _pendingUpdate = info;
+                btnUpdate.Text = "v" + info.LatestVersion;
+                btnUpdate.Visible = true;
+                btnUpdate.BringToFront();
+
+                if (silent)
+                {
+                    if (!Visible && notifyIcon != null)
+                    {
+                        notifyIcon.ShowBalloonTip(5000, "Доступно обновление Antigravity Proxy",
+                            "Новая версия v" + info.LatestVersion + " готова к установке.", ToolTipIcon.Info);
+                    }
+                }
+                else
+                {
+                    PromptAndInstallUpdateAsync(info);
+                }
+            }
+            else
+            {
+                _pendingUpdate = null;
+                btnUpdate.Visible = false;
+                if (!silent)
+                {
+                    MessageBox.Show("У вас установлена последняя версия Antigravity Proxy (v" + AppCore.AppVersion + ").",
+                        "Обновления", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        }
+
+        private async void PromptAndInstallUpdateAsync(UpdateInfo info)
+        {
+            if (info == null || !info.Available || string.IsNullOrEmpty(info.DownloadUrl)) return;
+
+            string notes = string.IsNullOrWhiteSpace(info.Notes) ? "" : ("\r\n\r\nЧто нового:\r\n" + info.Notes.Trim());
+            if (notes.Length > 450) notes = notes.Substring(0, 450) + "…";
+
+            string msg = string.Format(
+                "Доступна новая версия Antigravity Proxy: v{0} (текущая v{1}).{2}\r\n\r\nУстановить обновление сейчас?\r\nЛокальный Xray продолжит работать — интернет не прервётся.",
+                info.LatestVersion, info.CurrentVersion, notes);
+
+            var dr = MessageBox.Show(msg, "Обновление Antigravity Proxy", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (dr != DialogResult.Yes) return;
+
+            btnUpdate.Enabled = false;
+            btnUpdate.Text = "Загрузка…";
+            btnCheckUpdate.Enabled = false;
+
+            string err = "";
+            bool ok = await Task.Run(() => AppCore.DownloadAndApplyUpdate(info.DownloadUrl, out err));
+
+            if (ok)
+            {
+                _isExiting = true;
+                if (notifyIcon != null)
+                {
+                    notifyIcon.Visible = false;
+                    notifyIcon.Dispose();
+                }
+                Application.Exit();
+            }
+            else
+            {
+                btnUpdate.Enabled = true;
+                btnUpdate.Text = "v" + info.LatestVersion;
+                btnCheckUpdate.Enabled = true;
+                MessageBox.Show("Не удалось установить обновление:\r\n" + err,
+                    "Ошибка обновления", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void InitTray()
         {
             notifyIcon = new NotifyIcon
@@ -3276,6 +3670,7 @@ namespace AntigravityProxyApp
             var miOpen = trayMenu.Items.Add("Открыть");
             var miServices = trayMenu.Items.Add("Сервисы");
             var miSettings = trayMenu.Items.Add("Настройки");
+            var miUpdate = trayMenu.Items.Add("Проверить обновления");
             trayMenu.Items.Add(new ToolStripSeparator());
             var miExit = trayMenu.Items.Add("Выход");
             notifyIcon.ContextMenuStrip = trayMenu;
@@ -3298,6 +3693,11 @@ namespace AntigravityProxyApp
             {
                 showForm();
                 btnSettings.PerformClick();
+            };
+            miUpdate.Click += (s, e) =>
+            {
+                showForm();
+                CheckUpdatesAsync(false);
             };
             miExit.Click += (s, e) =>
             {

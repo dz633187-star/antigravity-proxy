@@ -1,0 +1,5 @@
+{
+  "version": "1.3.0",
+  "downloadUrl": "https://raw.githubusercontent.com/dz633187-star/antigravity-proxy/main/client/AntigravityProxy.exe",
+  "notes": "Обновлённый интерфейс, панель сервисов, запуск любого приложения через прокси, автозагрузка Xray-core и автообновление."
+}
