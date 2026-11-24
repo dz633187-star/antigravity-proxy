@@ -493,6 +493,7 @@ namespace AntigravityProxyApp
         public bool TelegramRunning { get; set; }
         public bool OpenCodeRunning { get; set; }
         public bool AgUnlockerConflict { get; set; }
+        public List<string> GlobalProxyEnvVars { get; set; }
     }
 
     public class UpdateInfo
@@ -507,7 +508,7 @@ namespace AntigravityProxyApp
 
     public class AppCore
     {
-        public const string AppVersion = "1.3.4";
+        public const string AppVersion = "1.3.5";
         private const string RepoOwner = "dz633187-star";
         private const string RepoName = "antigravity-proxy";
 
@@ -1520,11 +1521,52 @@ namespace AntigravityProxyApp
                         key.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
                     }
                 }
+                if (!on)
+                {
+                    ClearGlobalProxyEnvVars(true);
+                }
                 // Мгновенно уведомляем WinINet и приложения об изменении настроек прокси
                 InternetSetOption(IntPtr.Zero, INTERNET_OPTION_SETTINGS_CHANGED, IntPtr.Zero, 0);
                 InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
             }
             catch (Exception ex) { Log("SetSystemProxy: " + ex.Message); }
+        }
+
+        private static readonly string[] GlobalProxyEnvNames = { "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy" };
+
+        public static List<string> GetGlobalProxyEnvVars()
+        {
+            var found = new List<string>();
+            foreach (var name in GlobalProxyEnvNames)
+            {
+                try
+                {
+                    string v = Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User);
+                    if (!string.IsNullOrEmpty(v)) found.Add(name);
+                }
+                catch { }
+            }
+            return found;
+        }
+
+        public static int ClearGlobalProxyEnvVars(bool onlyLocalProxy)
+        {
+            int removed = 0;
+            foreach (var name in GlobalProxyEnvNames)
+            {
+                try
+                {
+                    string v = Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User);
+                    if (string.IsNullOrEmpty(v)) continue;
+                    if (onlyLocalProxy && !v.Contains("127.0.0.1:10809") && !v.Contains("127.0.0.1:10808") && !v.Contains("localhost:10809"))
+                        continue;
+                    Environment.SetEnvironmentVariable(name, null, EnvironmentVariableTarget.User);
+                    removed++;
+                }
+                catch (Exception ex) { Log("ClearGlobalProxyEnvVars(" + name + "): " + ex.Message); }
+            }
+            if (removed > 0) Log("Cleared " + removed + " stale global proxy env var(s) from User environment.");
+            return removed;
         }
 
         public static ServiceSnapshot CollectServices()
@@ -1534,6 +1576,7 @@ namespace AntigravityProxyApp
             snap.XrayHttpUp = TestPort(10809, 250);
             snap.XraySocksUp = TestPort(10808, 250);
             snap.AgdnsUp = TestPort(53, 250);
+            snap.GlobalProxyEnvVars = GetGlobalProxyEnvVars();
 
             try
             {
@@ -2670,7 +2713,7 @@ namespace AntigravityProxyApp
         private Label lblSrvSys, lblSrvSysVal, lblSrvDns, lblSrvDnsVal;
         private Label lblSrvPatch, lblSrvPatchVal;
         private Label lblSrvProcsTitle, lblSrvProcsVal, lblSrvConflict, lblVersion;
-        private UiButton btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate;
+        private UiButton btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate, btnClearEnv;
 
         private NotifyIcon notifyIcon;
 
@@ -2705,7 +2748,11 @@ namespace AntigravityProxyApp
             {
                 Activate();
                 UpdatePatch();
-                await Task.Run(() => EnsureActiveProxySynced());
+                await Task.Run(() =>
+                {
+                    if (!AppCore.TestSystemProxy()) AppCore.ClearGlobalProxyEnvVars(true);
+                    EnsureActiveProxySynced();
+                });
                 UpdateStatusAsync();
                 if (_settings.autoCheckUpdates != false)
                 {
@@ -2970,13 +3017,22 @@ namespace AntigravityProxyApp
             {
                 Text = "",
                 Location = new Point(18, 66),
-                Size = new Size(468, 22),
+                Size = new Size(350, 24),
                 Font = new Font("Segoe UI", 8.25f)
+            };
+            btnClearEnv = new UiButton
+            {
+                Text = "Очистить Env",
+                Location = new Point(378, 62),
+                Size = new Size(110, 26),
+                Radius = 6,
+                Visible = false
             };
             cardSrvProcs.Controls.Add(dotSrvProcs);
             cardSrvProcs.Controls.Add(lblSrvProcsTitle);
             cardSrvProcs.Controls.Add(lblSrvProcsVal);
             cardSrvProcs.Controls.Add(lblSrvConflict);
+            cardSrvProcs.Controls.Add(btnClearEnv);
 
             btnSrvRefresh = new UiButton { Text = "Обновить статусы", Location = new Point(18, 398), Size = new Size(164, 34), Radius = 7 };
             btnCheckUpdate = new UiButton { Text = "Проверить обновления", Location = new Point(190, 398), Size = new Size(184, 34), Radius = 7 };
@@ -3319,6 +3375,13 @@ namespace AntigravityProxyApp
 
             // === TAB 2: SERVICES ===
             btnSrvRefresh.Click += (s, e) => RefreshServicesAsync();
+            btnClearEnv.Click += async (s, e) =>
+            {
+                btnClearEnv.Enabled = false;
+                await Task.Run(() => AppCore.ClearGlobalProxyEnvVars(false));
+                btnClearEnv.Enabled = true;
+                RefreshServicesAsync();
+            };
             btnCheckUpdate.Click += (s, e) => CheckUpdatesAsync(false);
             btnUpdate.Click += (s, e) =>
             {
@@ -3510,7 +3573,7 @@ namespace AntigravityProxyApp
             lbSavedApps.SelectedItemBackColor = _p.accent;
             lbSavedApps.SelectedItemForeColor = Color.White;
 
-            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate };
+            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate, btnClearEnv };
             foreach (var b in secButtons) StyleSecondaryButton(b);
 
             StylePrimaryButton(btnStart);
@@ -3939,14 +4002,22 @@ namespace AntigravityProxyApp
                 lblSrvProcsVal.ForeColor = _p.muted;
             }
 
+            bool hasGlobalEnv = (snap.GlobalProxyEnvVars != null && snap.GlobalProxyEnvVars.Count > 0);
+            btnClearEnv.Visible = hasGlobalEnv;
+
             if (snap.AgUnlockerConflict)
             {
-                lblSrvConflict.Text = "Внимание: обнаружен процесс ag_dns (AGUnlocker) — может конфликтовать с прокси";
+                lblSrvConflict.Text = "Внимание: обнаружен ag_dns (AGUnlocker) — конфликт с прокси";
+                lblSrvConflict.ForeColor = _p.warn;
+            }
+            else if (hasGlobalEnv)
+            {
+                lblSrvConflict.Text = "Глобальные Env (" + string.Join(", ", snap.GlobalProxyEnvVars.ToArray()) + ") перехватывают игры";
                 lblSrvConflict.ForeColor = _p.warn;
             }
             else
             {
-                lblSrvConflict.Text = "Конфликтующих служб не обнаружено";
+                lblSrvConflict.Text = "Конфликтующих служб и глобальных Env не обнаружено";
                 lblSrvConflict.ForeColor = _p.muted;
             }
         }

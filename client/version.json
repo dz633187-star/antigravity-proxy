@@ -1,5 +1,5 @@
 {
-  "version": "1.3.4",
-  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.4/AntigravityProxy.exe",
-  "notes": "Добавлена кнопка «Отладка» в Настройках с полным диагностическим отчётом (Xray, порты, DNS, Antigravity, файлы патча и логи) для удалённого решения проблем."
+  "version": "1.3.5",
+  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.5/AntigravityProxy.exe",
+  "notes": "Защита от глобальных переменных HTTP_PROXY/HTTPS_PROXY: автоочистка залипших локальных переменных при запуске и выключении системного прокси, индикация и кнопка очистки во вкладке «Сервисы»."
 }
