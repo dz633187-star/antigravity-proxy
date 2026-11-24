@@ -75,12 +75,55 @@ namespace AntigravityProxyApp
         }
     }
 
+    public class HomeButtonItem
+    {
+        public string id { get; set; }
+        public string label { get; set; }
+        public bool visible { get; set; }
+        public bool primary { get; set; }
+        public string customPath { get; set; }
+        public string customArgs { get; set; }
+        public bool chromiumFlag { get; set; }
+
+        public HomeButtonItem()
+        {
+            id = "";
+            label = "";
+            visible = true;
+            primary = false;
+            customPath = "";
+            customArgs = "";
+            chromiumFlag = false;
+        }
+
+        public bool IsCustom()
+        {
+            return !string.IsNullOrEmpty(id) && id.StartsWith("custom:");
+        }
+
+        public HomeButtonItem Clone()
+        {
+            return new HomeButtonItem
+            {
+                id = this.id,
+                label = this.label,
+                visible = this.visible,
+                primary = this.primary,
+                customPath = this.customPath,
+                customArgs = this.customArgs,
+                chromiumFlag = this.chromiumFlag
+            };
+        }
+    }
+
     public class AppSettings
     {
         public string theme { get; set; }
         public int activeProxyIndex { get; set; }
         public List<ProxyItem> proxies { get; set; }
         public List<CustomAppItem> customApps { get; set; }
+        public List<HomeButtonItem> homeButtons { get; set; }
+        public bool? showPatchCard { get; set; }
         public bool? autoCheckUpdates { get; set; }
 
         public AppSettings()
@@ -89,6 +132,8 @@ namespace AntigravityProxyApp
             activeProxyIndex = 0;
             proxies = new List<ProxyItem>();
             customApps = new List<CustomAppItem>();
+            homeButtons = new List<HomeButtonItem>();
+            showPatchCard = true;
             autoCheckUpdates = true;
         }
     }
@@ -508,7 +553,7 @@ namespace AntigravityProxyApp
 
     public class AppCore
     {
-        public const string AppVersion = "1.3.5";
+        public const string AppVersion = "1.4.0";
         private const string RepoOwner = "dz633187-star";
         private const string RepoName = "antigravity-proxy";
 
@@ -942,6 +987,8 @@ namespace AntigravityProxyApp
             }
 
             if (s.customApps == null) s.customApps = new List<CustomAppItem>();
+            if (s.homeButtons == null || s.homeButtons.Count == 0) s.homeButtons = GetDefaultHomeButtons();
+            if (!s.showPatchCard.HasValue) s.showPatchCard = true;
 
             if (s.activeProxyIndex < 0 || s.activeProxyIndex >= s.proxies.Count)
             {
@@ -950,6 +997,43 @@ namespace AntigravityProxyApp
 
             if (string.IsNullOrEmpty(s.theme)) s.theme = "dark";
             return s;
+        }
+
+        public static List<HomeButtonItem> GetDefaultHomeButtons()
+        {
+            return new List<HomeButtonItem>
+            {
+                new HomeButtonItem { id = "antigravity", label = "Запустить Antigravity", visible = true, primary = true },
+                new HomeButtonItem { id = "aistudio", label = "AI Studio (Web)", visible = true, primary = false },
+                new HomeButtonItem { id = "telegram", label = "Telegram (SOCKS5)", visible = true, primary = false },
+                new HomeButtonItem { id = "opencode_gui", label = "OpenCode GUI", visible = true, primary = false },
+                new HomeButtonItem { id = "opencode_cli", label = "OpenCode CLI", visible = true, primary = false }
+            };
+        }
+
+        public static bool StopAgUnlocker()
+        {
+            try
+            {
+                string psCmd = "Disable-ScheduledTask -TaskName 'AG Unlocker Watchdog','AG Unlocker DNS' -ErrorAction SilentlyContinue | Out-Null; " +
+                               "Stop-ScheduledTask -TaskName 'AG Unlocker Watchdog','AG Unlocker DNS' -ErrorAction SilentlyContinue; " +
+                               "Stop-Process -Name ag_dns -Force -ErrorAction SilentlyContinue";
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"" + psCmd + "\"",
+                    Verb = "runas",
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                var p = Process.Start(psi);
+                if (p != null) p.WaitForExit(8000);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log("StopAgUnlocker: " + ex.Message);
+                return false;
+            }
         }
 
         public static void SaveSettings(AppSettings s)
@@ -2224,6 +2308,346 @@ namespace AntigravityProxyApp
         }
     }
 
+    public class CustomizeHomeDialog : Form
+    {
+        private AppSettings _settings;
+        private List<HomeButtonItem> _items;
+        private Palette _p;
+        private UiListBox lbItems;
+        private TextBox tbLabel;
+        private CheckBox chkVisible, chkPrimary, chkShowPatch;
+        private UiButton btnUp, btnDown, btnAddExe, btnDel, btnReset, btnSave, btnCancel;
+        private bool _loading = false;
+
+        public CustomizeHomeDialog(AppSettings settings, Palette palette, Icon icon)
+        {
+            _settings = settings;
+            _p = palette;
+            if (icon != null) Icon = icon;
+
+            _items = new List<HomeButtonItem>();
+            var src = (settings.homeButtons != null && settings.homeButtons.Count > 0)
+                ? settings.homeButtons
+                : AppCore.GetDefaultHomeButtons();
+            foreach (var it in src) _items.Add(it.Clone());
+
+            Text = "Персонализация главного экрана";
+            ClientSize = new Size(500, 504);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            BackColor = _p.bg;
+            Font = new Font("Segoe UI", 9f);
+            AutoScaleMode = AutoScaleMode.None;
+
+            BuildUI();
+            RefreshList(0);
+        }
+
+        private void StyleSec(UiButton b, Color? hoverBorder = null)
+        {
+            b.Fill = _p.secondaryFill;
+            b.Hover = _p.secondaryHover;
+            b.Pressed = _p.secondaryPressed;
+            b.BorderColor = _p.secondaryBorder;
+            b.HoverBorderColor = hoverBorder ?? _p.secondaryHoverBorder;
+            b.BorderWidth = 1;
+            b.ForeColor = _p.secondaryText;
+            b.DisabledFill = _p.disabledFill;
+            b.DisabledText = _p.disabledText;
+        }
+
+        private void BuildUI()
+        {
+            var lblTitle = new Label
+            {
+                Text = "Кнопки быстрого запуска",
+                Location = new Point(18, 14),
+                Size = new Size(300, 22),
+                ForeColor = _p.ink,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI Semibold", 10.5f)
+            };
+            Controls.Add(lblTitle);
+
+            var cardList = new UiCard
+            {
+                Location = new Point(18, 44),
+                Size = new Size(464, 214),
+                FillColor = _p.card,
+                BorderColor = _p.border,
+                Radius = 10
+            };
+            Controls.Add(cardList);
+
+            lbItems = new UiListBox
+            {
+                Location = new Point(12, 12),
+                Size = new Size(340, 190),
+                BackColor = _p.inputBg,
+                ItemBackColor = _p.inputBg,
+                ItemForeColor = _p.ink,
+                SubTextColor = _p.muted,
+                SelectedItemBackColor = _p.accent,
+                SelectedItemForeColor = Color.White
+            };
+            cardList.Controls.Add(lbItems);
+
+            btnUp = new UiButton { Text = "↑ Вверх", Location = new Point(362, 12), Size = new Size(90, 30), Radius = 6 };
+            btnDown = new UiButton { Text = "↓ Вниз", Location = new Point(362, 48), Size = new Size(90, 30), Radius = 6 };
+            btnAddExe = new UiButton { Text = "+ Программа", Location = new Point(362, 92), Size = new Size(90, 30), Radius = 6 };
+            btnDel = new UiButton { Text = "Удалить", Location = new Point(362, 128), Size = new Size(90, 30), Radius = 6 };
+            btnReset = new UiButton { Text = "Сбросить", Location = new Point(362, 172), Size = new Size(90, 30), Radius = 6 };
+
+            StyleSec(btnUp);
+            StyleSec(btnDown);
+            StyleSec(btnAddExe, _p.accent);
+            StyleSec(btnDel, _p.err);
+            StyleSec(btnReset);
+
+            cardList.Controls.Add(btnUp);
+            cardList.Controls.Add(btnDown);
+            cardList.Controls.Add(btnAddExe);
+            cardList.Controls.Add(btnDel);
+            cardList.Controls.Add(btnReset);
+
+            var cardProps = new UiCard
+            {
+                Location = new Point(18, 268),
+                Size = new Size(464, 124),
+                FillColor = _p.card,
+                BorderColor = _p.border,
+                Radius = 10
+            };
+            Controls.Add(cardProps);
+
+            cardProps.Controls.Add(new Label
+            {
+                Text = "Название выбранной кнопки",
+                Location = new Point(14, 12),
+                Size = new Size(260, 16),
+                ForeColor = _p.muted,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 8.25f)
+            });
+
+            tbLabel = new TextBox
+            {
+                Location = new Point(14, 32),
+                Size = new Size(436, 24),
+                BackColor = _p.inputBg,
+                ForeColor = _p.ink,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            cardProps.Controls.Add(tbLabel);
+
+            chkVisible = new CheckBox
+            {
+                Text = "Показывать кнопку на главном экране",
+                Location = new Point(14, 66),
+                Size = new Size(436, 20),
+                ForeColor = _p.ink,
+                BackColor = Color.Transparent
+            };
+            chkPrimary = new CheckBox
+            {
+                Text = "Сделать широкой акцентной кнопкой (во всю ширину)",
+                Location = new Point(14, 92),
+                Size = new Size(436, 20),
+                ForeColor = _p.muted,
+                BackColor = Color.Transparent
+            };
+            cardProps.Controls.Add(chkVisible);
+            cardProps.Controls.Add(chkPrimary);
+
+            chkShowPatch = new CheckBox
+            {
+                Text = "Показывать блок патча и системного прокси на главном экране",
+                Location = new Point(22, 404),
+                Size = new Size(456, 22),
+                ForeColor = _p.ink,
+                BackColor = Color.Transparent,
+                Checked = (_settings.showPatchCard != false)
+            };
+            Controls.Add(chkShowPatch);
+
+            btnSave = new UiButton
+            {
+                Text = "Применить",
+                Location = new Point(18, 444),
+                Size = new Size(156, 38),
+                Radius = 7,
+                Fill = _p.accent,
+                Hover = _p.accentHover,
+                Pressed = _p.accentPressed,
+                BorderWidth = 0,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI Semibold", 9.5f)
+            };
+            btnCancel = new UiButton { Text = "Отмена", Location = new Point(184, 444), Size = new Size(106, 38), Radius = 7 };
+            StyleSec(btnCancel);
+            Controls.Add(btnSave);
+            Controls.Add(btnCancel);
+
+            lbItems.SelectedIndexChanged += (s, e) => LoadSelected();
+
+            tbLabel.TextChanged += (s, e) =>
+            {
+                if (_loading) return;
+                int idx = lbItems.SelectedIndex;
+                if (idx >= 0 && idx < _items.Count)
+                {
+                    _items[idx].label = tbLabel.Text;
+                    UpdateListItemText(idx);
+                }
+            };
+
+            chkVisible.CheckedChanged += (s, e) =>
+            {
+                if (_loading) return;
+                int idx = lbItems.SelectedIndex;
+                if (idx >= 0 && idx < _items.Count)
+                {
+                    _items[idx].visible = chkVisible.Checked;
+                    UpdateListItemText(idx);
+                }
+            };
+
+            chkPrimary.CheckedChanged += (s, e) =>
+            {
+                if (_loading) return;
+                int idx = lbItems.SelectedIndex;
+                if (idx >= 0 && idx < _items.Count)
+                {
+                    _items[idx].primary = chkPrimary.Checked;
+                    UpdateListItemText(idx);
+                }
+            };
+
+            btnUp.Click += (s, e) =>
+            {
+                int idx = lbItems.SelectedIndex;
+                if (idx <= 0 || idx >= _items.Count) return;
+                var tmp = _items[idx - 1];
+                _items[idx - 1] = _items[idx];
+                _items[idx] = tmp;
+                RefreshList(idx - 1);
+            };
+
+            btnDown.Click += (s, e) =>
+            {
+                int idx = lbItems.SelectedIndex;
+                if (idx < 0 || idx >= _items.Count - 1) return;
+                var tmp = _items[idx + 1];
+                _items[idx + 1] = _items[idx];
+                _items[idx] = tmp;
+                RefreshList(idx + 1);
+            };
+
+            btnAddExe.Click += (s, e) =>
+            {
+                using (var ofd = new OpenFileDialog())
+                {
+                    ofd.Title = "Выберите программу для главного экрана";
+                    ofd.Filter = "Приложения (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|Все файлы (*.*)|*.*";
+                    if (ofd.ShowDialog(this) == DialogResult.OK)
+                    {
+                        string name = Path.GetFileNameWithoutExtension(ofd.FileName);
+                        _items.Add(new HomeButtonItem
+                        {
+                            id = "custom:" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                            label = name,
+                            visible = true,
+                            primary = false,
+                            customPath = ofd.FileName,
+                            customArgs = "",
+                            chromiumFlag = false
+                        });
+                        RefreshList(_items.Count - 1);
+                    }
+                }
+            };
+
+            btnDel.Click += (s, e) =>
+            {
+                int idx = lbItems.SelectedIndex;
+                if (idx < 0 || idx >= _items.Count) return;
+                if (!_items[idx].IsCustom())
+                {
+                    MessageBox.Show("Встроенную кнопку нельзя удалить — просто снимите галочку «Показывать кнопку».", "Персонализация", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                _items.RemoveAt(idx);
+                RefreshList(Math.Min(idx, _items.Count - 1));
+            };
+
+            btnReset.Click += (s, e) =>
+            {
+                _items = AppCore.GetDefaultHomeButtons();
+                chkShowPatch.Checked = true;
+                RefreshList(0);
+            };
+
+            btnSave.Click += (s, e) =>
+            {
+                _settings.homeButtons = _items;
+                _settings.showPatchCard = chkShowPatch.Checked;
+                AppCore.SaveSettings(_settings);
+                DialogResult = DialogResult.OK;
+                Close();
+            };
+
+            btnCancel.Click += (s, e) =>
+            {
+                DialogResult = DialogResult.Cancel;
+                Close();
+            };
+        }
+
+        private string FormatItem(HomeButtonItem it)
+        {
+            string state = it.visible ? "Показана" : "Скрыта";
+            string style = it.primary ? " · Широкая" : "";
+            string kind = it.IsCustom() ? (" · " + Path.GetFileName(it.customPath ?? "")) : " · Встроенная";
+            return string.Format("{0}\n{1}{2}{3}", string.IsNullOrEmpty(it.label) ? it.id : it.label, state, style, kind);
+        }
+
+        private void UpdateListItemText(int idx)
+        {
+            if (idx < 0 || idx >= lbItems.Items.Count) return;
+            _loading = true;
+            lbItems.Items[idx] = FormatItem(_items[idx]);
+            _loading = false;
+        }
+
+        private void RefreshList(int selIdx)
+        {
+            _loading = true;
+            lbItems.Items.Clear();
+            foreach (var it in _items) lbItems.Items.Add(FormatItem(it));
+            if (selIdx >= 0 && selIdx < lbItems.Items.Count)
+                lbItems.SelectedIndex = selIdx;
+            else if (lbItems.Items.Count > 0)
+                lbItems.SelectedIndex = 0;
+            _loading = false;
+            LoadSelected();
+        }
+
+        private void LoadSelected()
+        {
+            int idx = lbItems.SelectedIndex;
+            if (idx < 0 || idx >= _items.Count) return;
+            _loading = true;
+            var it = _items[idx];
+            tbLabel.Text = it.label ?? "";
+            chkVisible.Checked = it.visible;
+            chkPrimary.Checked = it.primary;
+            btnDel.Enabled = it.IsCustom();
+            _loading = false;
+        }
+    }
+
     public class SettingsDialog : Form
     {
         private AppSettings _settings;
@@ -2690,10 +3114,10 @@ namespace AntigravityProxyApp
         // Tab 0: Home
         private UiCard cardNode, cardLaunch, cardSys;
         private UiStatusDot dotNode;
-        private Label lblStatus, lblDetail, lblNodeMeta;
-        private UiButton btnStatus, btnSpeed;
+        private Label lblStatus, lblDetail, lblNodeMeta, lblLaunchTitle;
+        private UiButton btnStatus, btnSpeed, btnCustomizeHome;
         private UiComboBox cbActiveProxy;
-        private UiButton btnStart, btnBrowser, btnTelegram, btnOcGui, btnOcCli;
+        private List<UiButton> _homeActionButtons = new List<UiButton>();
         private UiStatusDot dotPatch;
         private Label lblPatch, lblApp;
         private UiButton btnPatch, btnSysProxy;
@@ -2703,7 +3127,7 @@ namespace AntigravityProxyApp
         private Label lblRunTitle, lblRunPath, lblRunArgs, lblRunFeedback, lblSavedTitle;
         private TextBox tbAppPath, tbAppArgs;
         private CheckBox chkChromiumFlag;
-        private UiButton btnBrowseApp, btnRunAny, btnSaveApp, btnRunSaved, btnDelSaved;
+        private UiButton btnBrowseApp, btnRunAny, btnSaveApp, btnRunSaved, btnPinToHome, btnDelSaved;
         private UiListBox lbSavedApps;
 
         // Tab 2: Services Monitor
@@ -2714,6 +3138,7 @@ namespace AntigravityProxyApp
         private Label lblSrvPatch, lblSrvPatchVal;
         private Label lblSrvProcsTitle, lblSrvProcsVal, lblSrvConflict, lblVersion;
         private UiButton btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate, btnClearEnv;
+        private bool _conflictIsAgDns = false;
 
         private NotifyIcon notifyIcon;
 
@@ -2821,7 +3246,7 @@ namespace AntigravityProxyApp
             tabBar.Controls.Add(btnTabServices);
 
             // === CONTENT CONTAINERS ===
-            pnlHome = new Panel { Location = new Point(0, 114), Size = new Size(540, 446) };
+            pnlHome = new Panel { Location = new Point(0, 114), Size = new Size(540, 446), AutoScroll = true };
             pnlApps = new Panel { Location = new Point(0, 114), Size = new Size(540, 446), Visible = false };
             pnlServices = new Panel { Location = new Point(0, 114), Size = new Size(540, 446), Visible = false };
             Controls.Add(pnlHome);
@@ -2856,35 +3281,44 @@ namespace AntigravityProxyApp
             cardNode.Controls.Add(btnSpeed);
             cardNode.Controls.Add(cbActiveProxy);
 
-            // Card 2: Quick Launchers
-            cardLaunch = new UiCard { Location = new Point(18, 148), Size = new Size(504, 152), Radius = 10 };
+            // Card 2: Quick Launchers (dynamic / customizable)
+            cardLaunch = new UiCard { Location = new Point(18, 148), Size = new Size(504, 178), Radius = 10 };
             pnlHome.Controls.Add(cardLaunch);
 
-            btnStart = new UiButton { Text = "Запустить Antigravity", Location = new Point(14, 14), Size = new Size(476, 40), Radius = 7, Font = new Font("Segoe UI Semibold", 10f) };
-            btnBrowser = new UiButton { Text = "AI Studio (Web)", Location = new Point(14, 62), Size = new Size(234, 34), Radius = 7 };
-            btnTelegram = new UiButton { Text = "Telegram (SOCKS5)", Location = new Point(256, 62), Size = new Size(234, 34), Radius = 7 };
-            btnOcGui = new UiButton { Text = "OpenCode GUI", Location = new Point(14, 104), Size = new Size(234, 34), Radius = 7 };
-            btnOcCli = new UiButton { Text = "OpenCode CLI", Location = new Point(256, 104), Size = new Size(234, 34), Radius = 7 };
-            cardLaunch.Controls.Add(btnStart);
-            cardLaunch.Controls.Add(btnBrowser);
-            cardLaunch.Controls.Add(btnTelegram);
-            cardLaunch.Controls.Add(btnOcGui);
-            cardLaunch.Controls.Add(btnOcCli);
+            lblLaunchTitle = new Label
+            {
+                Text = "Быстрый запуск",
+                Location = new Point(16, 11),
+                Size = new Size(200, 18),
+                Font = new Font("Segoe UI Semibold", 9f)
+            };
+            btnCustomizeHome = new UiButton
+            {
+                Text = "Настроить",
+                Location = new Point(398, 8),
+                Size = new Size(92, 24),
+                Radius = 6,
+                Font = new Font("Segoe UI", 8.25f)
+            };
+            cardLaunch.Controls.Add(lblLaunchTitle);
+            cardLaunch.Controls.Add(btnCustomizeHome);
 
             // Card 3: System & Patch
-            cardSys = new UiCard { Location = new Point(18, 310), Size = new Size(504, 122), Radius = 10 };
+            cardSys = new UiCard { Location = new Point(18, 336), Size = new Size(504, 116), Radius = 10 };
             pnlHome.Controls.Add(cardSys);
 
             dotPatch = new UiStatusDot { Location = new Point(16, 17), Size = new Size(14, 14) };
             lblPatch = new Label { Text = "Патч: проверка…", Location = new Point(36, 14), Size = new Size(340, 20), Font = new Font("Segoe UI Semibold", 9.25f) };
             btnPatch = new UiButton { Text = "Патч", Location = new Point(398, 12), Size = new Size(90, 28), Radius = 6 };
-            lblApp = new Label { Text = "", Location = new Point(18, 40), Size = new Size(468, 20), Font = new Font("Consolas", 8f) };
-            btnSysProxy = new UiButton { Text = "Системный прокси: выкл", Location = new Point(16, 72), Size = new Size(260, 34), Radius = 7 };
+            lblApp = new Label { Text = "", Location = new Point(18, 39), Size = new Size(468, 18), Font = new Font("Consolas", 8f) };
+            btnSysProxy = new UiButton { Text = "Системный прокси: выкл", Location = new Point(16, 68), Size = new Size(260, 34), Radius = 7 };
             cardSys.Controls.Add(dotPatch);
             cardSys.Controls.Add(lblPatch);
             cardSys.Controls.Add(btnPatch);
             cardSys.Controls.Add(lblApp);
             cardSys.Controls.Add(btnSysProxy);
+
+            RebuildHomeLaunchers();
         }
 
         private void BuildAppsTab()
@@ -2943,10 +3377,12 @@ namespace AntigravityProxyApp
             lbSavedApps = new UiListBox { Location = new Point(16, 38), Size = new Size(472, 118) };
             cardSavedApps.Controls.Add(lbSavedApps);
 
-            btnRunSaved = new UiButton { Text = "Запустить выбранное", Location = new Point(16, 164), Size = new Size(170, 30), Radius = 6 };
-            btnDelSaved = new UiButton { Text = "Удалить", Location = new Point(194, 164), Size = new Size(92, 30), Radius = 6 };
-            lblRunFeedback = new Label { Text = "", Location = new Point(296, 170), Size = new Size(192, 18), Font = new Font("Segoe UI", 8.25f), TextAlign = ContentAlignment.MiddleRight };
+            btnRunSaved = new UiButton { Text = "Запустить", Location = new Point(16, 164), Size = new Size(110, 30), Radius = 6 };
+            btnPinToHome = new UiButton { Text = "На главный", Location = new Point(132, 164), Size = new Size(106, 30), Radius = 6 };
+            btnDelSaved = new UiButton { Text = "Удалить", Location = new Point(244, 164), Size = new Size(80, 30), Radius = 6 };
+            lblRunFeedback = new Label { Text = "", Location = new Point(330, 170), Size = new Size(158, 18), Font = new Font("Segoe UI", 8.25f), TextAlign = ContentAlignment.MiddleRight };
             cardSavedApps.Controls.Add(btnRunSaved);
+            cardSavedApps.Controls.Add(btnPinToHome);
             cardSavedApps.Controls.Add(btnDelSaved);
             cardSavedApps.Controls.Add(lblRunFeedback);
         }
@@ -3161,117 +3597,15 @@ namespace AntigravityProxyApp
                 }
             };
 
-            btnStart.Click += (s, e) =>
+            btnCustomizeHome.Click += (s, e) =>
             {
-                try
+                using (var dlg = new CustomizeHomeDialog(_settings, _p, Icon))
                 {
-                    string app = AppCore.FindAntigravityApp();
-                    if (string.IsNullOrEmpty(app))
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
                     {
-                        MessageBox.Show("Antigravity не найден на этом компьютере.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
+                        _settings = AppCore.LoadSettings();
+                        RebuildHomeLaunchers();
                     }
-                    if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-
-                    foreach (var p in Process.GetProcessesByName("Antigravity"))
-                    {
-                        try { p.Kill(); } catch { }
-                    }
-                    System.Threading.Thread.Sleep(700);
-                    AppCore.StartWithProxyEnv(app);
-                    UpdateStatusAsync();
-                }
-                catch (Exception ex)
-                {
-                    lblStatus.Text = "Не удалось запустить: " + ex.Message;
-                    lblStatus.ForeColor = _p.err;
-                }
-            };
-
-            btnBrowser.Click += (s, e) =>
-            {
-                try
-                {
-                    string browser = AppCore.FindBrowser();
-                    if (string.IsNullOrEmpty(browser))
-                    {
-                        MessageBox.Show("Chrome или Edge не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-                    if (!Directory.Exists(AppCore.BrowserProfile)) Directory.CreateDirectory(AppCore.BrowserProfile);
-
-                    string args = string.Format("--proxy-server=http://127.0.0.1:10809 --proxy-bypass-list=\"<local>;localhost;127.0.0.1;::1;{0}\" --user-data-dir=\"{1}\" --no-first-run --no-default-browser-check https://aistudio.google.com/", Environment.MachineName, AppCore.BrowserProfile);
-                    Process.Start(browser, args);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Не удалось открыть браузер: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
-
-            btnTelegram.Click += (s, e) =>
-            {
-                try
-                {
-                    if (!AppCore.TestPort(10809) || !AppCore.TestPort(10808))
-                    {
-                        AppCore.RestartXray();
-                    }
-
-                    string tg = AppCore.FindTelegramApp();
-                    string proxyUrl = "tg://socks?server=127.0.0.1&port=10808";
-
-                    if (!string.IsNullOrEmpty(tg))
-                    {
-                        AppCore.StartWithProxyEnv(tg, "-- \"" + proxyUrl + "\"", Path.GetDirectoryName(tg));
-                    }
-                    else
-                    {
-                        Process.Start(new ProcessStartInfo { FileName = proxyUrl, UseShellExecute = true });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Не удалось запустить Telegram: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
-
-            btnOcGui.Click += (s, e) =>
-            {
-                try
-                {
-                    string oc = AppCore.FindOpenCodeGui();
-                    if (string.IsNullOrEmpty(oc))
-                    {
-                        MessageBox.Show("OpenCode GUI не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-                    AppCore.StartWithProxyEnv(oc);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Не удалось запустить OpenCode GUI: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
-
-            btnOcCli.Click += (s, e) =>
-            {
-                try
-                {
-                    string oc = AppCore.FindOpenCodeCli();
-                    if (string.IsNullOrEmpty(oc))
-                    {
-                        MessageBox.Show("OpenCode CLI не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    if (!AppCore.TestPort(10809)) AppCore.RestartXray();
-                    AppCore.StartWithProxyEnv("powershell.exe", "-NoExit -NoProfile -Command \"& '" + oc + "'\"");
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Не удалось запустить OpenCode CLI: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
 
@@ -3362,6 +3696,33 @@ namespace AntigravityProxyApp
             btnRunSaved.Click += (s, e) => RunSelectedSavedApp();
             lbSavedApps.DoubleClick += (s, e) => RunSelectedSavedApp();
 
+            btnPinToHome.Click += (s, e) =>
+            {
+                int idx = lbSavedApps.SelectedIndex;
+                if (idx < 0 || idx >= _settings.customApps.Count)
+                {
+                    lblRunFeedback.Text = "Выберите приложение";
+                    lblRunFeedback.ForeColor = _p.warn;
+                    return;
+                }
+                var app = _settings.customApps[idx];
+                if (_settings.homeButtons == null) _settings.homeButtons = AppCore.GetDefaultHomeButtons();
+                _settings.homeButtons.Add(new HomeButtonItem
+                {
+                    id = "custom:" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    label = app.name,
+                    visible = true,
+                    primary = false,
+                    customPath = app.path,
+                    customArgs = app.args,
+                    chromiumFlag = app.chromiumFlag
+                });
+                AppCore.SaveSettings(_settings);
+                RebuildHomeLaunchers();
+                lblRunFeedback.Text = "Добавлено на главный";
+                lblRunFeedback.ForeColor = _p.ok;
+            };
+
             btnDelSaved.Click += (s, e) =>
             {
                 int idx = lbSavedApps.SelectedIndex;
@@ -3378,7 +3739,16 @@ namespace AntigravityProxyApp
             btnClearEnv.Click += async (s, e) =>
             {
                 btnClearEnv.Enabled = false;
-                await Task.Run(() => AppCore.ClearGlobalProxyEnvVars(false));
+                if (_conflictIsAgDns)
+                {
+                    btnClearEnv.Text = "Остановка…";
+                    await Task.Run(() => AppCore.StopAgUnlocker());
+                }
+                else
+                {
+                    btnClearEnv.Text = "Очистка…";
+                    await Task.Run(() => AppCore.ClearGlobalProxyEnvVars(false));
+                }
                 btnClearEnv.Enabled = true;
                 RefreshServicesAsync();
             };
@@ -3419,6 +3789,231 @@ namespace AntigravityProxyApp
                 RefreshServicesAsync();
                 UpdateStatusAsync();
             };
+        }
+
+        private void RebuildHomeLaunchers()
+        {
+            foreach (var b in _homeActionButtons)
+            {
+                cardLaunch.Controls.Remove(b);
+                b.Dispose();
+            }
+            _homeActionButtons.Clear();
+
+            var list = (_settings.homeButtons != null && _settings.homeButtons.Count > 0)
+                ? _settings.homeButtons
+                : AppCore.GetDefaultHomeButtons();
+
+            var visible = new List<HomeButtonItem>();
+            foreach (var it in list)
+            {
+                if (it != null && it.visible) visible.Add(it);
+            }
+
+            int y = 38;
+            int i = 0;
+            while (i < visible.Count)
+            {
+                var item = visible[i];
+                if (item.primary)
+                {
+                    var btn = new UiButton
+                    {
+                        Text = string.IsNullOrEmpty(item.label) ? item.id : item.label,
+                        Location = new Point(14, y),
+                        Size = new Size(476, 38),
+                        Radius = 7,
+                        Font = new Font("Segoe UI Semibold", 9.75f),
+                        Tag = item
+                    };
+                    StylePrimaryButton(btn);
+                    btn.Click += (s, e) => ExecuteHomeButton((HomeButtonItem)((Control)s).Tag);
+                    cardLaunch.Controls.Add(btn);
+                    _homeActionButtons.Add(btn);
+                    y += 45;
+                    i++;
+                }
+                else
+                {
+                    bool hasPair = (i + 1 < visible.Count && !visible[i + 1].primary);
+                    if (hasPair)
+                    {
+                        var btnL = new UiButton
+                        {
+                            Text = string.IsNullOrEmpty(item.label) ? item.id : item.label,
+                            Location = new Point(14, y),
+                            Size = new Size(234, 34),
+                            Radius = 7,
+                            Font = new Font("Segoe UI", 9f),
+                            Tag = item
+                        };
+                        StyleSecondaryButton(btnL);
+                        btnL.Click += (s, e) => ExecuteHomeButton((HomeButtonItem)((Control)s).Tag);
+                        cardLaunch.Controls.Add(btnL);
+                        _homeActionButtons.Add(btnL);
+
+                        var itemR = visible[i + 1];
+                        var btnR = new UiButton
+                        {
+                            Text = string.IsNullOrEmpty(itemR.label) ? itemR.id : itemR.label,
+                            Location = new Point(256, y),
+                            Size = new Size(234, 34),
+                            Radius = 7,
+                            Font = new Font("Segoe UI", 9f),
+                            Tag = itemR
+                        };
+                        StyleSecondaryButton(btnR);
+                        btnR.Click += (s, e) => ExecuteHomeButton((HomeButtonItem)((Control)s).Tag);
+                        cardLaunch.Controls.Add(btnR);
+                        _homeActionButtons.Add(btnR);
+
+                        y += 41;
+                        i += 2;
+                    }
+                    else
+                    {
+                        var btnFull = new UiButton
+                        {
+                            Text = string.IsNullOrEmpty(item.label) ? item.id : item.label,
+                            Location = new Point(14, y),
+                            Size = new Size(476, 34),
+                            Radius = 7,
+                            Font = new Font("Segoe UI", 9f),
+                            Tag = item
+                        };
+                        StyleSecondaryButton(btnFull);
+                        btnFull.Click += (s, e) => ExecuteHomeButton((HomeButtonItem)((Control)s).Tag);
+                        cardLaunch.Controls.Add(btnFull);
+                        _homeActionButtons.Add(btnFull);
+
+                        y += 41;
+                        i++;
+                    }
+                }
+            }
+
+            if (visible.Count == 0) y = 48;
+            cardLaunch.Size = new Size(504, y + 8);
+
+            bool showSys = (_settings.showPatchCard != false);
+            cardSys.Visible = showSys;
+            if (showSys)
+            {
+                cardSys.Location = new Point(18, cardLaunch.Bottom + 10);
+            }
+            cardLaunch.Invalidate();
+        }
+
+        private void ExecuteHomeButton(HomeButtonItem item)
+        {
+            if (item == null) return;
+            switch (item.id)
+            {
+                case "antigravity":
+                    try
+                    {
+                        string app = AppCore.FindAntigravityApp();
+                        if (string.IsNullOrEmpty(app))
+                        {
+                            MessageBox.Show("Antigravity не найден на этом компьютере.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        if (!AppCore.TestPort(10809)) AppCore.RestartXray();
+                        foreach (var p in Process.GetProcessesByName("Antigravity"))
+                        {
+                            try { p.Kill(); } catch { }
+                        }
+                        System.Threading.Thread.Sleep(700);
+                        AppCore.StartWithProxyEnv(app);
+                        UpdateStatusAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        lblStatus.Text = "Не удалось запустить: " + ex.Message;
+                        lblStatus.ForeColor = _p.err;
+                    }
+                    break;
+
+                case "aistudio":
+                    try
+                    {
+                        string browser = AppCore.FindBrowser();
+                        if (string.IsNullOrEmpty(browser))
+                        {
+                            MessageBox.Show("Chrome или Edge не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        if (!AppCore.TestPort(10809)) AppCore.RestartXray();
+                        if (!Directory.Exists(AppCore.BrowserProfile)) Directory.CreateDirectory(AppCore.BrowserProfile);
+                        string args = string.Format("--proxy-server=http://127.0.0.1:10809 --proxy-bypass-list=\"<local>;localhost;127.0.0.1;::1;{0}\" --user-data-dir=\"{1}\" --no-first-run --no-default-browser-check https://aistudio.google.com/", Environment.MachineName, AppCore.BrowserProfile);
+                        Process.Start(browser, args);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Не удалось открыть браузер: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    break;
+
+                case "telegram":
+                    try
+                    {
+                        if (!AppCore.TestPort(10809) || !AppCore.TestPort(10808)) AppCore.RestartXray();
+                        string tg = AppCore.FindTelegramApp();
+                        string proxyUrl = "tg://socks?server=127.0.0.1&port=10808";
+                        if (!string.IsNullOrEmpty(tg))
+                            AppCore.StartWithProxyEnv(tg, "-- \"" + proxyUrl + "\"", Path.GetDirectoryName(tg));
+                        else
+                            Process.Start(new ProcessStartInfo { FileName = proxyUrl, UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Не удалось запустить Telegram: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    break;
+
+                case "opencode_gui":
+                    try
+                    {
+                        string oc = AppCore.FindOpenCodeGui();
+                        if (string.IsNullOrEmpty(oc))
+                        {
+                            MessageBox.Show("OpenCode GUI не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        if (!AppCore.TestPort(10809)) AppCore.RestartXray();
+                        AppCore.StartWithProxyEnv(oc);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Не удалось запустить OpenCode GUI: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    break;
+
+                case "opencode_cli":
+                    try
+                    {
+                        string oc = AppCore.FindOpenCodeCli();
+                        if (string.IsNullOrEmpty(oc))
+                        {
+                            MessageBox.Show("OpenCode CLI не найден.", "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        if (!AppCore.TestPort(10809)) AppCore.RestartXray();
+                        AppCore.StartWithProxyEnv("powershell.exe", "-NoExit -NoProfile -Command \"& '" + oc + "'\"");
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Не удалось запустить OpenCode CLI: " + ex.Message, "Antigravity Proxy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    break;
+
+                default:
+                    if (item.IsCustom())
+                    {
+                        LaunchCustomApp(item.customPath, item.customArgs, item.chromiumFlag);
+                    }
+                    break;
+            }
         }
 
         private void LaunchCustomApp(string path, string args, bool chromiumFlag)
@@ -3552,7 +4147,7 @@ namespace AntigravityProxyApp
                 c.BackColor = _p.card;
             }
 
-            Label[] inkLabels = { lblTitle, lblStatus, lblRunTitle, lblSavedTitle, lblSrvHttp, lblSrvSocks, lblSrvSys, lblSrvDns, lblSrvPatch, lblSrvProcsTitle };
+            Label[] inkLabels = { lblTitle, lblStatus, lblLaunchTitle, lblRunTitle, lblSavedTitle, lblSrvHttp, lblSrvSocks, lblSrvSys, lblSrvDns, lblSrvPatch, lblSrvProcsTitle };
             foreach (var l in inkLabels) { l.ForeColor = _p.ink; l.BackColor = Color.Transparent; }
 
             Label[] mutedLabels = { lblHeaderStatus, lblDetail, lblNodeMeta, lblPatch, lblApp, lblRunPath, lblRunArgs, lblRunFeedback, lblSrvHttpVal, lblSrvSocksVal, lblSrvSysVal, lblSrvDnsVal, lblSrvPatchVal, lblSrvProcsVal, lblSrvConflict, lblVersion };
@@ -3573,10 +4168,16 @@ namespace AntigravityProxyApp
             lbSavedApps.SelectedItemBackColor = _p.accent;
             lbSavedApps.SelectedItemForeColor = Color.White;
 
-            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnBrowser, btnTelegram, btnOcGui, btnOcCli, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate, btnClearEnv };
+            UiButton[] secButtons = { btnSettings, btnTheme, btnStatus, btnSpeed, btnCustomizeHome, btnPatch, btnBrowseApp, btnSaveApp, btnRunSaved, btnPinToHome, btnDelSaved, btnSrvRestartXray, btnSrvToggleSys, btnSrvPatch, btnSrvRefresh, btnCheckUpdate, btnClearEnv };
             foreach (var b in secButtons) StyleSecondaryButton(b);
 
-            StylePrimaryButton(btnStart);
+            foreach (var hb in _homeActionButtons)
+            {
+                var item = hb.Tag as HomeButtonItem;
+                if (item != null && item.primary) StylePrimaryButton(hb);
+                else StyleSecondaryButton(hb);
+            }
+
             StylePrimaryButton(btnRunAny);
             StylePrimaryButton(btnUpdate);
 
@@ -4003,20 +4604,27 @@ namespace AntigravityProxyApp
             }
 
             bool hasGlobalEnv = (snap.GlobalProxyEnvVars != null && snap.GlobalProxyEnvVars.Count > 0);
-            btnClearEnv.Visible = hasGlobalEnv;
 
             if (snap.AgUnlockerConflict)
             {
-                lblSrvConflict.Text = "Внимание: обнаружен ag_dns (AGUnlocker) — конфликт с прокси";
+                _conflictIsAgDns = true;
+                btnClearEnv.Text = "Остановить";
+                btnClearEnv.Visible = true;
+                lblSrvConflict.Text = "Найден ag_dns (AGUnlocker) — конфликт";
                 lblSrvConflict.ForeColor = _p.warn;
             }
             else if (hasGlobalEnv)
             {
-                lblSrvConflict.Text = "Глобальные Env (" + string.Join(", ", snap.GlobalProxyEnvVars.ToArray()) + ") перехватывают игры";
+                _conflictIsAgDns = false;
+                btnClearEnv.Text = "Очистить Env";
+                btnClearEnv.Visible = true;
+                lblSrvConflict.Text = "Глобальные Env: " + string.Join(", ", snap.GlobalProxyEnvVars.ToArray());
                 lblSrvConflict.ForeColor = _p.warn;
             }
             else
             {
+                _conflictIsAgDns = false;
+                btnClearEnv.Visible = false;
                 lblSrvConflict.Text = "Конфликтующих служб и глобальных Env не обнаружено";
                 lblSrvConflict.ForeColor = _p.muted;
             }

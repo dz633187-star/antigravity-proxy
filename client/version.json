@@ -1,5 +1,5 @@
 {
-  "version": "1.3.5",
-  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.3.5/AntigravityProxy.exe",
-  "notes": "Защита от глобальных переменных HTTP_PROXY/HTTPS_PROXY: автоочистка залипших локальных переменных при запуске и выключении системного прокси, индикация и кнопка очистки во вкладке «Сервисы»."
+  "version": "1.4.0",
+  "downloadUrl": "https://github.com/dz633187-star/antigravity-proxy/releases/download/v1.4.0/AntigravityProxy.exe",
+  "notes": "Персонализация главного экрана (настройка, переименование, порядок, скрытие и добавление своих кнопок запуска), закрепление приложений на главном экране и кнопка остановки ag_dns (AGUnlocker) в 1 клик."
 }
